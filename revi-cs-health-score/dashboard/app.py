@@ -1375,12 +1375,27 @@ elif page == "Upsell":
 
     # ---- Dashboard de adocao ----
     st.markdown("#### Adocao por Produto")
-    _cols = st.columns(len(UPSELL_PRODUCTS))
-    for i, ps in enumerate(_product_stats):
+    _adoption_cards = ""
+    for ps in _product_stats:
         pct = ps["tem"] / _total * 100 if _total else 0
         color = GREEN if pct >= 70 else (YELLOW if pct >= 40 else RED)
-        with _cols[i]:
-            st.markdown(kpi(ps["name"].upper(), ps["tem"], "&#9679;", color, f"{pct:.0f}% da base"), unsafe_allow_html=True)
+        _adoption_cards += f"""
+        <div style="background:#fff;border-radius:12px;padding:16px 18px;
+                    box-shadow:0 1px 3px rgba(0,0,0,0.07);flex:1;min-width:0;">
+            <div style="font-size:0.72rem;font-weight:600;text-transform:uppercase;
+                        letter-spacing:0.4px;color:#64748B;margin-bottom:6px;
+                        white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
+                 title="{ps['name']}">{ps['name']}</div>
+            <div style="font-size:1.6rem;font-weight:700;color:#1E293B;line-height:1;">{ps['tem']}</div>
+            <div style="font-size:0.75rem;color:{color};font-weight:600;margin:4px 0 8px;">{pct:.0f}% da base</div>
+            <div style="background:#E2E8F0;border-radius:4px;height:6px;">
+                <div style="background:{color};width:{min(pct,100):.0f}%;height:6px;border-radius:4px;"></div>
+            </div>
+        </div>"""
+    st.markdown(
+        f'<div style="display:flex;gap:12px;margin-bottom:16px;">{_adoption_cards}</div>',
+        unsafe_allow_html=True,
+    )
 
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
