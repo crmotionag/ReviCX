@@ -505,7 +505,15 @@ def load_data():
     alerts["alert_date"] = pd.to_datetime(alerts["alert_date"])
     csm_activity["week_start"] = pd.to_datetime(csm_activity["week_start"])
     nps["response_date"] = pd.to_datetime(nps["response_date"])
-    return clients, health, alerts, csm_activity, coverage, revenue, nps
+    # Canais usados por cliente (SMS / Email)
+    campaign_channels = pd.read_sql("""
+        SELECT revi_client_id,
+               MAX(CASE WHEN campaign_type = 'sms'   THEN 1 ELSE 0 END) AS has_sms,
+               MAX(CASE WHEN campaign_type = 'email' THEN 1 ELSE 0 END) AS has_email
+        FROM raw_revi_campaigns
+        GROUP BY revi_client_id
+    """, engine)
+    return clients, health, alerts, csm_activity, coverage, revenue, nps, campaign_channels
 
 
 # ---------------------------------------------------------------------------
@@ -518,7 +526,7 @@ if not st.session_state.authenticated:
     st.stop()
 
 # --- Usuario autenticado daqui pra baixo ---
-clients, health, alerts, csm_activity, coverage, revenue, nps = load_data()
+clients, health, alerts, csm_activity, coverage, revenue, nps, campaign_channels = load_data()
 
 latest_health = (
     health.sort_values("calculated_at")
@@ -607,6 +615,7 @@ with st.sidebar:
     menu_items = [
         "Visao Geral",
         "Carteira do CSM",
+        "Upsell",
         "Alertas",
         "Performance CSM",
         "Receita (GRR/NRR)",
@@ -1327,7 +1336,131 @@ elif page == "NPS":
 
 
 # =========================================================================
-# PAGE 7 — Admin (so para admins)
+# PAGE 7 — Upsell
+# =========================================================================
+elif page == "Upsell":
+    st.markdown(header("Oportunidades de Upsell", "Identifique clientes com potencial de expansao de produto."), unsafe_allow_html=True)
+
+    # Monta base com canais de campanha
+    _up = client_health.merge(
+        campaign_channels.rename(columns={"revi_client_id": "client_id"}),
+        on="client_id", how="left"
+    )
+    _up["has_sms"]   = _up["has_sms"].fillna(0).astype(bool)
+    _up["has_email"] = _up["has_email"].fillna(0).astype(bool)
+
+    _total = len(_up)
+
+    # Definicao dos produtos e suas flags
+    UPSELL_PRODUCTS = [
+        ("Fluxo de Atendimento",      "has_chat_flow",          lambda r: bool(r.get("has_chat_flow"))),
+        ("SMS",                        "has_sms",                lambda r: bool(r.get("has_sms"))),
+        ("Email",                      "has_email",              lambda r: bool(r.get("has_email"))),
+        ("Agente de IA",               "has_ai_enabled",         lambda r: bool(r.get("has_ai_enabled"))),
+        ("Automacao de Integracao 2+", "integration_automations",lambda r: int(r.get("integration_automations") or 0) >= 2),
+        ("Automacao de Campanhas",     "active_automations",     lambda r: int(r.get("active_automations") or 0) > 0),
+        ("Cashback Ativo",             "cashback_enabled",       lambda r: bool(r.get("cashback_enabled"))),
+    ]
+
+    # Calcula quem tem e quem nao tem cada produto
+    _product_stats = []
+    for name, _, check_fn in UPSELL_PRODUCTS:
+        has_mask = _up.apply(check_fn, axis=1)
+        _product_stats.append({
+            "name": name,
+            "tem": has_mask.sum(),
+            "nao_tem": (~has_mask).sum(),
+            "mask_nao_tem": ~has_mask,
+        })
+
+    # ---- Dashboard de adocao ----
+    st.markdown("#### Adocao por Produto")
+    _cols = st.columns(len(UPSELL_PRODUCTS))
+    for i, ps in enumerate(_product_stats):
+        pct = ps["tem"] / _total * 100 if _total else 0
+        color = GREEN if pct >= 70 else (YELLOW if pct >= 40 else RED)
+        with _cols[i]:
+            st.markdown(kpi(ps["name"].upper(), ps["tem"], "&#9679;", color, f"{pct:.0f}% da base"), unsafe_allow_html=True)
+
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+    # Grafico de barras: adocao vs oportunidade
+    fig_up = go.Figure()
+    fig_up.add_trace(go.Bar(
+        name="Tem o produto",
+        x=[ps["name"] for ps in _product_stats],
+        y=[ps["tem"] for ps in _product_stats],
+        marker_color=BLUE_PRIMARY,
+        text=[ps["tem"] for ps in _product_stats],
+        textposition="inside",
+    ))
+    fig_up.add_trace(go.Bar(
+        name="Sem o produto (oportunidade)",
+        x=[ps["name"] for ps in _product_stats],
+        y=[ps["nao_tem"] for ps in _product_stats],
+        marker_color=ORANGE_CTA,
+        text=[ps["nao_tem"] for ps in _product_stats],
+        textposition="inside",
+    ))
+    fig_up.update_layout(**PLOTLY_LAYOUT, barmode="stack", height=320,
+                         yaxis_title="Clientes", showlegend=True,
+                         legend=dict(orientation="h", y=-0.2))
+    st.plotly_chart(fig_up, use_container_width=True)
+
+    st.markdown("---")
+
+    # ---- Filtro de produto + CSM ----
+    with st.sidebar:
+        st.markdown("### Filtros")
+        _up_csm_list = sorted(_up["csm_owner"].dropna().unique().tolist())
+        _up_csm = st.selectbox("CSM", ["Todos"] + _up_csm_list, key="up_csm")
+        _up_status = st.selectbox("Status", ["Todos", "Campeao", "Alerta", "Em Risco"], key="up_status")
+
+    _status_map = {"Campeao": "green", "Alerta": "yellow", "Em Risco": "red"}
+    _up_filtered = _up.copy()
+    if _up_csm != "Todos":
+        _up_filtered = _up_filtered[_up_filtered["csm_owner"] == _up_csm]
+    if _up_status != "Todos":
+        _up_filtered = _up_filtered[_up_filtered["health_status"] == _status_map[_up_status]]
+
+    # ---- Oportunidades por produto ----
+    st.markdown("#### Oportunidades por Produto")
+    st.caption("Clientes que ainda nao utilizam cada produto — potencial de expansao.")
+
+    _TABLE_COLS = {
+        "company_name": "Empresa",
+        "csm_owner": "CSM",
+        "segment_ipc": "Segmento",
+        "total_score": "Score",
+        "health_status": "Status",
+        "mrr": "MRR (R$)",
+        "days_to_renewal": "Renovacao (dias)",
+    }
+
+    for ps in _product_stats:
+        _opp = _up_filtered[ps["mask_nao_tem"].reindex(_up_filtered.index, fill_value=False)]
+        _count = len(_opp)
+        if _count == 0:
+            continue
+
+        with st.expander(f"**{ps['name']}** — {_count} cliente(s) sem o produto", expanded=False):
+            _tbl = _opp[list(_TABLE_COLS.keys())].rename(columns=_TABLE_COLS).copy()
+            _tbl["Status"] = _tbl["Status"].map(STATUS_LABELS).fillna(_tbl["Status"])
+            _tbl["MRR (R$)"] = _tbl["MRR (R$)"].apply(lambda x: f"R$ {x:,.0f}" if pd.notna(x) else "-")
+            _tbl = _tbl.sort_values("Score").reset_index(drop=True)
+            _tbl.index = _tbl.index + 1
+
+            def _color_upsell(row):
+                s = str(row.get("Status", "")).lower()
+                if "campeao" in s: return ["background-color:#DCFCE7"] * len(row)
+                if "alerta"  in s: return ["background-color:#FEF9C3"] * len(row)
+                if "risco"   in s: return ["background-color:#FEE2E2"] * len(row)
+                return [""] * len(row)
+
+            st.dataframe(_tbl.style.apply(_color_upsell, axis=1), use_container_width=True)
+
+# =========================================================================
+# PAGE 8 — Admin (so para admins)
 # =========================================================================
 elif page == "Admin":
     if not user.get("is_admin"):
