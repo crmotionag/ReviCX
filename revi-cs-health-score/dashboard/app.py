@@ -237,22 +237,21 @@ st.markdown(f"""
         border-radius: 8px !important;
         color: #000000 !important;
     }}
-    .stSelectbox span,
-    .stSelectbox p,
-    .stSelectbox div,
-    .stSelectbox input,
+    /* Texto dentro das caixas (select e date) — preto sobre fundo branco */
     .stSelectbox [data-baseweb="select"] *,
+    .stSelectbox input,
     .stDateInput input,
-    .stDateInput span,
-    .stDateInput div,
-    [data-testid="stSidebar"] .stSelectbox *,
-    [data-testid="stSidebar"] .stDateInput *,
-    [data-testid="stSidebar"] .stTextInput *,
-    [data-testid="stSidebar"] input,
-    [data-testid="stSidebar"] [data-baseweb="select"] *,
-    [data-testid="stSidebar"] [data-baseweb="input"] * {{
+    .stDateInput [data-baseweb="base-input"] *,
+    .stTextInput input {{
         color: #000000 !important;
     }}
+    /* Sidebar: texto DENTRO das caixas tambem preto (fundo branco) */
+    [data-testid="stSidebar"] [data-baseweb="select"] *,
+    [data-testid="stSidebar"] [data-baseweb="base-input"] *,
+    [data-testid="stSidebar"] input {{
+        color: #000000 !important;
+    }}
+    /* Sidebar: labels FORA das caixas ficam brancos — herdado da regra * acima */
     [data-testid="stSidebar"] button p,
     [data-testid="stSidebar"] button span {{
         color: #000000 !important;
