@@ -214,6 +214,14 @@ st.markdown(f"""
     h1, h2, h3, h4, p, span, div, label {{
         color: {TEXT_DARK} !important;
     }}
+    /* Header azul: todos os textos brancos */
+    .revi-header h1,
+    .revi-header p,
+    .revi-header span,
+    .revi-header div,
+    .revi-header label {{
+        color: #FFFFFF !important;
+    }}
     .stSubheader {{
         color: {TEXT_DARK} !important;
     }}
