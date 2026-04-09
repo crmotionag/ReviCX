@@ -211,13 +211,7 @@ st.markdown(f"""
         background: {BG_CARD} !important;
         border-radius: 10px;
     }}
-    /* Textos do conteudo principal — sem sobrescrever sidebar e headers coloridos */
-    [data-testid="stAppViewContainer"] h1,
-    [data-testid="stAppViewContainer"] h2,
-    [data-testid="stAppViewContainer"] h3,
-    [data-testid="stAppViewContainer"] h4,
-    [data-testid="stAppViewContainer"] p,
-    [data-testid="stAppViewContainer"] label {{
+    h1, h2, h3, h4, p, span, div, label {{
         color: {TEXT_DARK} !important;
     }}
     .stSubheader {{
@@ -235,50 +229,33 @@ st.markdown(f"""
         color: {TEXT_DARK} !important;
     }}
 
-    /* ---- Sidebar: caixas de filtro com fundo semi-transparente, texto branco ---- */
-    [data-testid="stSidebar"] .stSelectbox > div > div,
-    [data-testid="stSidebar"] .stDateInput > div > div,
-    [data-testid="stSidebar"] .stTextInput > div > div {{
-        background: rgba(255,255,255,0.12) !important;
-        border: 1px solid rgba(255,255,255,0.25) !important;
-        border-radius: 8px !important;
-    }}
-    [data-testid="stSidebar"] [data-baseweb="select"] *,
-    [data-testid="stSidebar"] input,
-    [data-testid="stSidebar"] .stSelectbox *,
-    [data-testid="stSidebar"] .stDateInput *,
-    [data-testid="stSidebar"] .stTextInput * {{
-        color: #FFFFFF !important;
-        background: transparent !important;
-    }}
-
-    /* ---- Conteudo principal: inputs com fundo branco e texto escuro ---- */
+    /* ---- Fix Streamlit default dark elements ---- */
     .stSelectbox > div > div,
-    .stTextInput > div > div,
     .stDateInput > div > div {{
         background: {BG_CARD} !important;
         border: 1px solid #CBD5E1 !important;
         border-radius: 8px !important;
+        color: #000000 !important;
     }}
-    .stSelectbox [data-baseweb="select"] *,
     .stSelectbox span,
     .stSelectbox p,
-    .stTextInput input,
+    .stSelectbox div,
+    .stSelectbox input,
+    .stSelectbox [data-baseweb="select"] *,
     .stDateInput input,
-    .stDateInput span {{
-        color: {TEXT_DARK} !important;
+    .stDateInput span,
+    .stDateInput div,
+    [data-testid="stSidebar"] .stSelectbox *,
+    [data-testid="stSidebar"] .stDateInput *,
+    [data-testid="stSidebar"] .stTextInput *,
+    [data-testid="stSidebar"] input,
+    [data-testid="stSidebar"] [data-baseweb="select"] *,
+    [data-testid="stSidebar"] [data-baseweb="input"] * {{
+        color: #000000 !important;
     }}
-
-    /* ---- Metricas, labels e textos gerais no conteudo principal ---- */
-    [data-testid="stMetricLabel"] *,
-    [data-testid="stMetricValue"] *,
-    [data-testid="stMetricDelta"] * {{
-        color: {TEXT_DARK} !important;
-    }}
-    .stTextInput label, .stSelectbox label,
-    .stDateInput label, .stTextArea label,
-    .stRadio label, .stCheckbox label {{
-        color: {TEXT_DARK} !important;
+    [data-testid="stSidebar"] button p,
+    [data-testid="stSidebar"] button span {{
+        color: #000000 !important;
     }}
 </style>
 """, unsafe_allow_html=True)
