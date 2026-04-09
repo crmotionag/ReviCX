@@ -231,7 +231,8 @@ st.markdown(f"""
 
     /* ---- Fix Streamlit default dark elements ---- */
     .stSelectbox > div > div,
-    .stDateInput > div > div {{
+    .stDateInput > div > div,
+    .stTextInput > div > div {{
         background: {BG_CARD} !important;
         border: 1px solid #CBD5E1 !important;
         border-radius: 8px !important;
