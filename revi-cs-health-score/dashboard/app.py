@@ -229,14 +229,6 @@ st.markdown(f"""
         color: {TEXT_DARK} !important;
     }}
 
-    /* ---- Sidebar logout button: black text ---- */
-    [data-testid="stSidebar"] button[kind="secondary"] p,
-    [data-testid="stSidebar"] button[kind="secondary"] span,
-    [data-testid="stSidebar"] button p,
-    [data-testid="stSidebar"] button span {{
-        color: #000000 !important;
-    }}
-
     /* ---- Fix Streamlit default dark elements ---- */
     .stSelectbox > div > div,
     .stDateInput > div > div {{
@@ -245,7 +237,24 @@ st.markdown(f"""
         border-radius: 8px !important;
         color: #000000 !important;
     }}
-    .stDateInput input {{
+    .stSelectbox span,
+    .stSelectbox p,
+    .stSelectbox div,
+    .stSelectbox input,
+    .stSelectbox [data-baseweb="select"] *,
+    .stDateInput input,
+    .stDateInput span,
+    .stDateInput div,
+    [data-testid="stSidebar"] .stSelectbox *,
+    [data-testid="stSidebar"] .stDateInput *,
+    [data-testid="stSidebar"] .stTextInput *,
+    [data-testid="stSidebar"] input,
+    [data-testid="stSidebar"] [data-baseweb="select"] *,
+    [data-testid="stSidebar"] [data-baseweb="input"] * {{
+        color: #000000 !important;
+    }}
+    [data-testid="stSidebar"] button p,
+    [data-testid="stSidebar"] button span {{
         color: #000000 !important;
     }}
 </style>
