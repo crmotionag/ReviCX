@@ -1202,8 +1202,8 @@ elif page == "Receita (GRR/NRR)":
             mode="lines+markers", name="NRR",
             line=dict(color=BLUE_PRIMARY, width=3), marker=dict(size=8),
         ))
-        fig_rev.add_hline(y=TARGET_GRR, line_dash="dash", line_color=GREEN+"66", annotation_text=f"Meta GRR ({TARGET_GRR}%)")
-        fig_rev.add_hline(y=TARGET_NRR, line_dash="dash", line_color=BLUE_PRIMARY+"66", annotation_text=f"Meta NRR ({TARGET_NRR}%)")
+        fig_rev.add_hline(y=TARGET_GRR, line_dash="dash", line_color="rgba(34,197,94,0.6)", annotation_text=f"Meta GRR ({TARGET_GRR}%)")
+        fig_rev.add_hline(y=TARGET_NRR, line_dash="dash", line_color="rgba(37,99,235,0.6)", annotation_text=f"Meta NRR ({TARGET_NRR}%)")
         fig_rev.update_layout(**PLOTLY_LAYOUT, height=380, yaxis_title="%")
         st.plotly_chart(fig_rev, use_container_width=True)
     
