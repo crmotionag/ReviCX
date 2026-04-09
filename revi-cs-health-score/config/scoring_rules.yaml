@@ -1,0 +1,164 @@
+# =============================================================================
+# REGRAS DO HEALTH SCORE — ReviCX
+# Edite este arquivo para ajustar criterios. Nao precisa mexer em codigo.
+# =============================================================================
+
+version: "1.0"
+
+# --- Criterio 1: Recencia de Campanha ---
+recency:
+  description: "Data da ultima campanha enviada"
+  max_points: 5
+  rules:
+    - condition: "days_since_last_campaign <= 7"
+      points: 5
+      label: "Ativa (ultimos 7 dias)"
+    - condition: "days_since_last_campaign <= 20"
+      points: 3
+      label: "Moderada (8-20 dias)"
+    - condition: "days_since_last_campaign > 20 OR no_campaigns"
+      points: 0
+      label: "Inativa (>20 dias)"
+
+# --- Criterio 2: ROI de Campanhas ---
+roi:
+  description: "Retorno sobre investimento das campanhas"
+  max_points: 5
+  rules:
+    - condition: "campaign_roi >= 10"
+      points: 5
+      label: "Excelente (>=10x)"
+    - condition: "campaign_roi >= 1"
+      points: 3
+      label: "Positivo (1x-10x)"
+    - condition: "campaign_roi < 1 OR no_data"
+      points: 0
+      label: "Zerado/Negativo"
+
+# --- Criterio 3: Automacoes Ativas ---
+automations:
+  description: "Quantidade de automacoes ativas"
+  max_points: 5
+  rules:
+    - condition: "active_automations >= 3"
+      points: 5
+      label: "Completo (3+)"
+    - condition: "active_automations >= 1"
+      points: 3
+      label: "Basico (1-2)"
+    - condition: "active_automations == 0"
+      points: 0
+      label: "Nenhuma"
+
+# --- Criterio 4: Automacoes de Integracao ---
+integrations:
+  description: "Quantidade de automacoes de integracao ativas"
+  max_points: 5
+  rules:
+    - condition: "integration_automations >= 4"
+      points: 5
+      label: "Lock-in alto (4+)"
+    - condition: "integration_automations == 3"
+      points: 4
+      label: "Bom (3)"
+    - condition: "integration_automations >= 1"
+      points: 2
+      label: "Basico (1-2)"
+    - condition: "integration_automations == 0"
+      points: 0
+      label: "Nenhuma"
+
+# --- Criterio 5: Utilizacao de Atendimento ---
+chat_usage:
+  description: "Uso do modulo de atendimento (chat)"
+  max_points: 5
+  rules:
+    - condition: "has_human_agent AND (has_chat_flow OR has_ai)"
+      points: 5
+      label: "Avancado/Hibrido"
+    - condition: "has_human_agent OR has_chat_flow"
+      points: 4
+      label: "Essencial"
+    - condition: "no_chat_usage"
+      points: 0
+      label: "Nao utiliza"
+
+# --- Criterio 6: Volume de Mensagens ---
+message_volume:
+  description: "Volume e tendencia de mensagens enviadas"
+  max_points: 5
+  rules:
+    - condition: "volume_trend == 'growing' OR plan_usage_pct >= 80"
+      points: 5
+      label: "Alto/Crescente"
+    - condition: "volume_trend == 'stable'"
+      points: 3
+      label: "Estavel"
+    - condition: "volume_trend == 'declining' OR plan_usage_pct < 20"
+      points: 0
+      label: "Queda/Irrelevante"
+
+# --- Classificacao Final ---
+classification:
+  green:
+    label: "Campeao"
+    emoji: "🟢"
+    min_score: 26
+    max_score: 35
+    description: "Power User. Extrai o maximo da ferramenta."
+  yellow:
+    label: "Alerta"
+    emoji: "🟡"
+    min_score: 16
+    max_score: 25
+    description: "Operacional. Estavel mas subutilizado."
+  red:
+    label: "Em Risco"
+    emoji: "🔴"
+    min_score: 0
+    max_score: 15
+    description: "Desconectado. Acao de resgate imediata."
+
+# --- Regras de Alerta ---
+alerts:
+  - id: "score_dropped_to_red"
+    name: "Score caiu para Vermelho"
+    condition: "health_status == 'red' AND previous_status != 'red'"
+    severity: "critical"
+    action: "Criar task urgente para o CSM"
+
+  - id: "no_campaign_14d"
+    name: "Sem campanha ha 14+ dias"
+    condition: "days_since_last_campaign >= 14"
+    severity: "warning"
+    action: "Notificar CSM para agendar consultoria"
+
+  - id: "roi_dropped_below_1"
+    name: "ROI caiu abaixo de 1x"
+    condition: "campaign_roi < 1 AND previous_roi >= 1"
+    severity: "warning"
+    action: "Agendar analise de campanha com cliente"
+
+  - id: "renewal_90d"
+    name: "Renovacao em 90 dias"
+    condition: "days_to_renewal <= 90"
+    severity: "info"
+    action: "Iniciar processo de reaplicacao SPICE"
+
+  - id: "renewal_30d_red"
+    name: "Renovacao em 30 dias + Score Vermelho"
+    condition: "days_to_renewal <= 30 AND health_status == 'red'"
+    severity: "critical"
+    action: "Escalar para gestao — risco alto de churn"
+
+  - id: "volume_drop_30pct"
+    name: "Queda de volume >30%"
+    condition: "messages_mom_change <= -30"
+    severity: "warning"
+    action: "Investigar causa e agendar call"
+
+  - id: "upsell_opportunity"
+    name: "Oportunidade de upsell"
+    condition: "health_status == 'green' AND plan_usage_pct >= 90"
+    severity: "info"
+    action: "Qualificar como SQL de expansao"
