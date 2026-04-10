@@ -1634,13 +1634,15 @@ elif page == "Abrir Ticket":
                         _data = _resp.json()
                         _key = _data.get("key", "")
                         _link = f"{JIRA_URL}/browse/{_key}"
-                        # Routing: areas afetadas → Prioridade; Bug → Bugs; Feature/Demanda → Feature request
+                        # Routing: areas afetadas → Prioridade; Bug → Bugs; Feature → Feature request; Demanda → Customer Tasks
                         if impactos:
                             _transition_jira_ticket(_key, "12")   # Prioridade
                         elif tipo == "Bug":
                             _transition_jira_ticket(_key, "15")   # Bugs
+                        elif tipo == "Feature Request":
+                            _transition_jira_ticket(_key, "16")   # Feature request
                         else:
-                            _transition_jira_ticket(_key, "16")   # Feature request (Feature Request e Demanda Tecnica)
+                            _transition_jira_ticket(_key, "8")    # Customer Tasks (Demanda Tecnica)
                         st.success(f"Ticket criado com sucesso! [{_key}]({_link})")
                     else:
                         st.error(f"Erro ao criar ticket no Jira ({_resp.status_code}): {_resp.text[:300]}")
