@@ -1607,6 +1607,18 @@ elif page == "Abrir Ticket":
         )
         return note_resp
 
+    def _upload_jira_attachments(issue_key, files):
+        """Faz upload de imagens como anexos no ticket Jira."""
+        url = f"{JIRA_URL}/rest/api/3/issue/{issue_key}/attachments"
+        for f in files:
+            _requests.post(
+                url,
+                headers={"X-Atlassian-Token": "no-check"},
+                files={"file": (f.name, f.getvalue(), f.type)},
+                auth=(JIRA_EMAIL, JIRA_API_TOKEN),
+                timeout=30,
+            )
+
     # --- Formulario ---
     with st.form("ticket_form", clear_on_submit=True):
         st.markdown("### Informacoes do Cliente")
@@ -1638,6 +1650,14 @@ elif page == "Abrir Ticket":
             _desc_labels[tipo][0],
             placeholder=_desc_labels[tipo][1],
             height=180,
+            key="descricao_input",
+        )
+
+        imagens = st.file_uploader(
+            "Imagens (opcional)",
+            type=["png", "jpg", "jpeg", "gif", "webp"],
+            accept_multiple_files=True,
+            key="ticket_images",
         )
 
         impactos = []
@@ -1707,6 +1727,8 @@ elif page == "Abrir Ticket":
                             _transition_jira_ticket(_key, "16")   # Feature request
                         else:
                             _transition_jira_ticket(_key, "8")    # Customer Tasks (Demanda Tecnica)
+                        if imagens:
+                            _upload_jira_attachments(_key, imagens)
                         _log_hubspot_activity(app_id.strip(), _key, _link, _summary)
                         st.success(f"Ticket criado com sucesso! [{_key}]({_link})")
                     else:
