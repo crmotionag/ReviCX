@@ -22,10 +22,11 @@ if _ENV_PATH.exists():
             _k, _v = _line.split("=", 1)
             os.environ.setdefault(_k.strip(), _v.strip())
 
-JIRA_URL        = os.environ.get("JIRA_URL", "")
+JIRA_URL        = os.environ.get("JIRA_URL", "https://userevi.atlassian.net")
 JIRA_EMAIL      = os.environ.get("JIRA_EMAIL", "")
 JIRA_API_TOKEN  = os.environ.get("JIRA_API_TOKEN", "")
-JIRA_PROJECT    = os.environ.get("JIRA_PROJECT_KEY", "CS")
+JIRA_PROJECT    = os.environ.get("JIRA_PROJECT_KEY", "DEV")
+JIRA_CLOUD_ID   = os.environ.get("JIRA_CLOUD_ID", "bac96881-c73c-48dc-aca3-2a3358dc7279")
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -1592,7 +1593,7 @@ elif page == "Abrir Ticket":
 
             _priority_map = {1: "Lowest", 2: "Low", 3: "Medium", 4: "High", 5: "Highest"}
             _priority = _priority_map[urgencia]
-            _issue_type = "Bug" if tipo == "Bug" else "Story"
+            _issue_type = "Bug" if tipo == "Bug" else "História"
 
             _impactos_txt = "\n".join(f"  - {i}" for i in impactos) if impactos else "  Nenhum informado"
             _desc_full = (
