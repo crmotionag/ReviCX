@@ -1543,12 +1543,65 @@ elif page == "Abrir Ticket":
             timeout=10,
         )
 
+    def _log_hubspot_activity(app_name_value, jira_key, jira_link, ticket_summary):
+        """Busca empresa pelo gupshupapp e cria nota com o link do ticket Jira."""
+        hs_key = os.environ.get("HUBSPOT_API_KEY", "")
+        if not hs_key:
+            return
+        hs_headers = {"Authorization": f"Bearer {hs_key}", "Content-Type": "application/json"}
+
+        # 1. Encontrar empresa pelo gupshupapp
+        search_resp = _requests.post(
+            "https://api.hubapi.com/crm/v3/objects/companies/search",
+            headers=hs_headers,
+            json={
+                "filterGroups": [{"filters": [
+                    {"propertyName": "gupshupapp", "operator": "EQ", "value": app_name_value}
+                ]}],
+                "properties": ["name", "gupshupapp"],
+                "limit": 1,
+            },
+            timeout=10,
+        )
+        if search_resp.status_code != 200:
+            return
+        results = search_resp.json().get("results", [])
+        if not results:
+            return
+        company_id = results[0]["id"]
+
+        # 2. Criar nota com link do ticket
+        import datetime as _dt
+        ts_ms = int(_dt.datetime.utcnow().timestamp() * 1000)
+        note_body = (
+            f"Ticket Jira aberto via ReviCX Health Score Dashboard.\n\n"
+            f"Ticket: {jira_key}\n"
+            f"Link: {jira_link}\n"
+            f"Resumo: {ticket_summary}"
+        )
+        note_resp = _requests.post(
+            "https://api.hubapi.com/crm/v3/objects/notes",
+            headers=hs_headers,
+            json={
+                "properties": {
+                    "hs_note_body": note_body,
+                    "hs_timestamp": str(ts_ms),
+                },
+                "associations": [{
+                    "to": {"id": company_id},
+                    "types": [{"associationCategory": "HUBSPOT_DEFINED", "associationTypeId": 190}],
+                }],
+            },
+            timeout=10,
+        )
+        return note_resp
+
     # --- Formulario ---
     with st.form("ticket_form", clear_on_submit=True):
         st.markdown("### Informacoes do Cliente")
         fc1, fc2 = st.columns(2)
         with fc1:
-            app_id = st.text_input("AppID do cliente *", placeholder="ex: 10234")
+            app_id = st.text_input("AppName do cliente *", placeholder="ex: minhaloja")
         with fc2:
             relacionamento = st.selectbox(
                 "Como esta o relacionamento do cliente com a plataforma? *",
@@ -1597,7 +1650,7 @@ elif page == "Abrir Ticket":
         # Validacao
         _erros = []
         if not app_id.strip():
-            _erros.append("AppID do cliente e obrigatorio.")
+            _erros.append("AppName do cliente e obrigatorio.")
         if not descricao.strip():
             _erros.append("Descricao e obrigatoria.")
 
@@ -1607,7 +1660,7 @@ elif page == "Abrir Ticket":
         else:
             # Monta summary e descricao
             _tipo_label = {"Bug": "BUG", "Feature Request": "FEATURE", "Demanda Tecnica": "DEMANDA"}[tipo]
-            _summary = f"[{_tipo_label}] AppID {app_id.strip()} — {descricao.strip()[:80]}"
+            _summary = f"[{_tipo_label}] {app_id.strip()} — {descricao.strip()[:80]}"
 
             _priority_map = {1: "Lowest", 2: "Low", 3: "Medium", 4: "High", 5: "Highest"}
             _priority = _priority_map[urgencia]
@@ -1616,7 +1669,7 @@ elif page == "Abrir Ticket":
             _impactos_txt = "\n".join(f"  - {i}" for i in impactos) if impactos else "  Nenhum informado"
             _desc_full = (
                 f"Solicitado por: {user.get('name', 'N/A')} ({user.get('area', '')} / {user.get('role', '')})\n\n"
-                f"AppID: {app_id.strip()}\n"
+                f"AppName: {app_id.strip()}\n"
                 f"Relacionamento com a plataforma: {relacionamento}\n"
                 f"Urgencia (1-5): {urgencia}\n"
                 f"Tipo: {tipo}\n\n"
@@ -1643,6 +1696,7 @@ elif page == "Abrir Ticket":
                             _transition_jira_ticket(_key, "16")   # Feature request
                         else:
                             _transition_jira_ticket(_key, "8")    # Customer Tasks (Demanda Tecnica)
+                        _log_hubspot_activity(app_id.strip(), _key, _link, _summary)
                         st.success(f"Ticket criado com sucesso! [{_key}]({_link})")
                     else:
                         st.error(f"Erro ao criar ticket no Jira ({_resp.status_code}): {_resp.text[:300]}")
