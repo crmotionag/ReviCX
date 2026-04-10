@@ -13,7 +13,15 @@ import hashlib
 import os
 import requests as _requests
 
-# Carrega variaveis do .env
+# Carrega variaveis: st.secrets (Streamlit Cloud) > .env (local)
+_SECRETS_KEYS = ["HUBSPOT_API_KEY", "JIRA_URL", "JIRA_EMAIL", "JIRA_API_TOKEN", "JIRA_PROJECT_KEY", "JIRA_CLOUD_ID"]
+try:
+    for _k in _SECRETS_KEYS:
+        if _k in st.secrets:
+            os.environ.setdefault(_k, st.secrets[_k])
+except Exception:
+    pass
+
 _ENV_PATH = Path(__file__).parent.parent / ".env"
 try:
     if _ENV_PATH.exists():

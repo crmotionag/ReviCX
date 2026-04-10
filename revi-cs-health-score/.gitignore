@@ -1,8 +1,7 @@
 __pycache__/
 *.pyc
-data/*.db
 .env
 .venv/
 venv/
 *.egg-info/
-.streamlit/
+.streamlit/secrets.toml
