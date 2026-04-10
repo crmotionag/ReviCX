@@ -268,18 +268,21 @@ st.markdown(f"""
     /* ---- Fix Streamlit default dark elements ---- */
     .stSelectbox > div > div,
     .stDateInput > div > div,
-    .stTextInput > div > div {{
+    .stTextInput > div > div,
+    .stTextArea > div > div {{
         background: {BG_CARD} !important;
         border: 1px solid #CBD5E1 !important;
         border-radius: 8px !important;
         color: #000000 !important;
     }}
-    /* Texto dentro das caixas (select e date) — preto sobre fundo branco */
+    /* Texto dentro das caixas (select, date, textarea) — preto sobre fundo branco */
     .stSelectbox [data-baseweb="select"] *,
     .stSelectbox input,
     .stDateInput input,
     .stDateInput [data-baseweb="base-input"] *,
-    .stTextInput input {{
+    .stTextInput input,
+    .stTextArea textarea {{
+        background: {BG_CARD} !important;
         color: #000000 !important;
     }}
     /* Sidebar: texto DENTRO das caixas tambem preto (fundo branco) */
