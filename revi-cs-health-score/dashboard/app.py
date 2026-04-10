@@ -1587,6 +1587,8 @@ elif page == "Abrir Ticket":
             f"Link: {jira_link}\n\n"
             f"{ticket_summary}"
         )
+        # Stage por tipo: Bug → Pendente (Bug), Feature/Demanda → Pendente Feature
+        stage_map = {"Bug": "1049833765", "Feature Request": "1049833764", "Demanda Tecnica": "1049833764"}
         priority_map = {"Bug": "HIGH", "Feature Request": "MEDIUM", "Demanda Tecnica": "MEDIUM"}
         ticket_resp = _requests.post(
             "https://api.hubapi.com/crm/v3/objects/tickets",
@@ -1597,7 +1599,7 @@ elif page == "Abrir Ticket":
                     "content": content,
                     "hs_ticket_priority": priority_map.get(tipo, "MEDIUM"),
                     "hs_pipeline": "719982980",
-                    "hs_pipeline_stage": "1049833764",
+                    "hs_pipeline_stage": stage_map.get(tipo, "1049833764"),
                 },
                 "associations": [{
                     "to": {"id": company_id},
@@ -1607,6 +1609,77 @@ elif page == "Abrir Ticket":
             timeout=10,
         )
         return ticket_resp
+
+    def _sync_jira_to_hubspot():
+        """Sincroniza status dos tickets HubSpot com o Jira."""
+        hs_key = os.environ.get("HUBSPOT_API_KEY", "")
+        if not hs_key or not JIRA_API_TOKEN:
+            return 0, "Credenciais nao configuradas."
+        hs_headers = {"Authorization": f"Bearer {hs_key}", "Content-Type": "application/json"}
+
+        # Jira status → HubSpot stage
+        JIRA_STAGE_MAP = {
+            "Em andamento": "1049833767",  # In Progress
+            "Concluído":    "1049878345",  # Done
+        }
+
+        # Buscar tickets HubSpot do pipeline que nao estao Done
+        search_resp = _requests.post(
+            "https://api.hubapi.com/crm/v3/objects/tickets/search",
+            headers=hs_headers,
+            json={
+                "filterGroups": [{"filters": [
+                    {"propertyName": "hs_pipeline", "operator": "EQ", "value": "719982980"},
+                    {"propertyName": "hs_pipeline_stage", "operator": "NEQ", "value": "1049878345"},
+                ]}],
+                "properties": ["subject", "content", "hs_pipeline_stage"],
+                "limit": 100,
+            },
+            timeout=15,
+        )
+        if search_resp.status_code != 200:
+            return 0, f"Erro ao buscar tickets HubSpot: {search_resp.status_code}"
+
+        tickets = search_resp.json().get("results", [])
+        updated = 0
+        for t in tickets:
+            content_text = t.get("properties", {}).get("content", "") or ""
+            # Extrai chave Jira do campo content (formato "Ticket Jira: DEV-XXXX")
+            jira_key = None
+            for line in content_text.splitlines():
+                if line.startswith("Ticket Jira:"):
+                    jira_key = line.split(":", 1)[1].strip()
+                    break
+            if not jira_key:
+                continue
+
+            # Consulta status atual no Jira
+            jr = _requests.get(
+                f"{JIRA_URL}/rest/api/3/issue/{jira_key}",
+                auth=(JIRA_EMAIL, JIRA_API_TOKEN),
+                headers={"Content-Type": "application/json"},
+                timeout=10,
+            )
+            if jr.status_code != 200:
+                continue
+            jira_status = jr.json().get("fields", {}).get("status", {}).get("name", "")
+            new_stage = JIRA_STAGE_MAP.get(jira_status)
+            if not new_stage:
+                continue
+            current_stage = t["properties"].get("hs_pipeline_stage")
+            if new_stage == current_stage:
+                continue
+
+            # Atualiza stage no HubSpot
+            _requests.patch(
+                f"https://api.hubapi.com/crm/v3/objects/tickets/{t['id']}",
+                headers=hs_headers,
+                json={"properties": {"hs_pipeline_stage": new_stage}},
+                timeout=10,
+            )
+            updated += 1
+
+        return updated, None
 
     def _upload_jira_attachments(issue_key, files):
         """Faz upload de imagens como anexos no ticket Jira."""
@@ -1751,6 +1824,18 @@ elif page == "Abrir Ticket":
                     "description": _desc_full,
                     "labels": _labels,
                 })
+
+    # --- Sync Jira → HubSpot ---
+    st.divider()
+    st.markdown("#### Sincronizar status com Jira")
+    st.caption("Atualiza o status dos tickets HubSpot com base no status atual no Jira (Em andamento → In Progress / Concluído → Done).")
+    if st.button("Sincronizar agora", icon="🔄"):
+        with st.spinner("Sincronizando..."):
+            _n, _err = _sync_jira_to_hubspot()
+        if _err:
+            st.error(_err)
+        else:
+            st.success(f"{_n} ticket(s) atualizados." if _n else "Tudo ja sincronizado.")
 
 # =========================================================================
 # PAGE 9 — Admin (so para admins)
