@@ -10,6 +10,22 @@ from pathlib import Path
 from sqlalchemy import create_engine, text
 from datetime import datetime
 import hashlib
+import os
+import requests as _requests
+
+# Carrega variaveis do .env
+_ENV_PATH = Path(__file__).parent.parent / ".env"
+if _ENV_PATH.exists():
+    for _line in _ENV_PATH.read_text(encoding="utf-8").splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _k, _v = _line.split("=", 1)
+            os.environ.setdefault(_k.strip(), _v.strip())
+
+JIRA_URL        = os.environ.get("JIRA_URL", "")
+JIRA_EMAIL      = os.environ.get("JIRA_EMAIL", "")
+JIRA_API_TOKEN  = os.environ.get("JIRA_API_TOKEN", "")
+JIRA_PROJECT    = os.environ.get("JIRA_PROJECT_KEY", "CS")
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -616,6 +632,7 @@ with st.sidebar:
         "Visao Geral",
         "Carteira do CSM",
         "Upsell",
+        "Abrir Ticket",
         "Alertas",
         "Performance CSM",
         "Receita (GRR/NRR)",
@@ -1475,7 +1492,148 @@ elif page == "Upsell":
             st.dataframe(_tbl.style.apply(_color_upsell, axis=1), use_container_width=True)
 
 # =========================================================================
-# PAGE 8 — Admin (so para admins)
+# PAGE 8 — Abrir Ticket (Jira)
+# =========================================================================
+elif page == "Abrir Ticket":
+    st.markdown(header("Abrir Ticket", "Registre um bug ou feature request para o time de produto."), unsafe_allow_html=True)
+
+    # Verifica configuracao Jira
+    _jira_ok = bool(JIRA_URL and JIRA_EMAIL and JIRA_API_TOKEN)
+    if not _jira_ok:
+        st.warning("Integracao com Jira nao configurada. Adicione JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN e JIRA_PROJECT_KEY no arquivo .env")
+
+    def _create_jira_ticket(summary, description, issue_type, priority, labels=None):
+        """Cria um issue no Jira via REST API."""
+        url = f"{JIRA_URL}/rest/api/3/issue"
+        auth = (_requests.auth.HTTPBasicAuth if hasattr(_requests.auth, "HTTPBasicAuth") else None)
+        payload = {
+            "fields": {
+                "project": {"key": JIRA_PROJECT},
+                "summary": summary,
+                "description": {
+                    "type": "doc",
+                    "version": 1,
+                    "content": [{"type": "paragraph", "content": [{"type": "text", "text": description}]}],
+                },
+                "issuetype": {"name": issue_type},
+                "priority": {"name": priority},
+                **({"labels": labels} if labels else {}),
+            }
+        }
+        resp = _requests.post(
+            url,
+            json=payload,
+            auth=(JIRA_EMAIL, JIRA_API_TOKEN),
+            headers={"Content-Type": "application/json"},
+            timeout=10,
+        )
+        return resp
+
+    # --- Formulario ---
+    with st.form("ticket_form", clear_on_submit=True):
+        st.markdown("### Informacoes do Cliente")
+        fc1, fc2 = st.columns(2)
+        with fc1:
+            app_id = st.text_input("AppID do cliente *", placeholder="ex: 10234")
+        with fc2:
+            relacionamento = st.selectbox(
+                "Como esta o relacionamento do cliente com a plataforma? *",
+                ["Bom", "Neutro", "Ruim"],
+            )
+
+        urgencia = st.select_slider(
+            "Voce entende que e urgente para o cliente?",
+            options=[1, 2, 3, 4, 5],
+            value=3,
+            format_func=lambda x: {1: "1 — Baixa", 2: "2", 3: "3 — Media", 4: "4", 5: "5 — Critica"}[x],
+        )
+
+        st.markdown("### Tipo de Solicitacao")
+        tipo = st.selectbox("E Bug ou Feature Request? *", ["Bug", "Feature Request"])
+
+        descricao = st.text_area(
+            "Descreva o problema *" if tipo == "Bug" else "Descreva a funcionalidade desejada *",
+            placeholder="Cole aqui o resultado do prompt do Marcelo no Gemini..." if tipo == "Bug" else "Descreva o que precisa ser desenvolvido...",
+            height=180,
+        )
+
+        impactos = []
+        if tipo == "Bug":
+            st.markdown("**Esta afetando as areas abaixo?**")
+            ci1, ci2 = st.columns(2)
+            with ci1:
+                if st.checkbox("Automacao / Integracao"):
+                    impactos.append("Automacao/Integracao")
+                if st.checkbox("Volumes grandes de clientes afetados"):
+                    impactos.append("Volumes-grandes")
+            with ci2:
+                if st.checkbox("Utilizacao do produto / campanha"):
+                    impactos.append("Produto/Campanha")
+                if st.checkbox("Inbox instavel"):
+                    impactos.append("Inbox-instavel")
+
+        submitted = st.form_submit_button("Abrir Ticket no Jira", use_container_width=True, type="primary")
+
+    if submitted:
+        # Validacao
+        _erros = []
+        if not app_id.strip():
+            _erros.append("AppID do cliente e obrigatorio.")
+        if not descricao.strip():
+            _erros.append("Descricao e obrigatoria.")
+
+        if _erros:
+            for e in _erros:
+                st.error(e)
+        else:
+            # Monta summary e descricao
+            _tipo_label = "BUG" if tipo == "Bug" else "FEATURE"
+            _summary = f"[{_tipo_label}] AppID {app_id.strip()} — {descricao.strip()[:80]}"
+
+            _priority_map = {1: "Lowest", 2: "Low", 3: "Medium", 4: "High", 5: "Highest"}
+            _priority = _priority_map[urgencia]
+            _issue_type = "Bug" if tipo == "Bug" else "Story"
+
+            _impactos_txt = "\n".join(f"  - {i}" for i in impactos) if impactos else "  Nenhum informado"
+            _desc_full = (
+                f"Solicitado por: {user.get('name', 'N/A')} ({user.get('area', '')} / {user.get('role', '')})\n\n"
+                f"AppID: {app_id.strip()}\n"
+                f"Relacionamento com a plataforma: {relacionamento}\n"
+                f"Urgencia (1-5): {urgencia}\n"
+                f"Tipo: {tipo}\n\n"
+                f"Descricao:\n{descricao.strip()}\n\n"
+                + (f"Areas afetadas:\n{_impactos_txt}" if tipo == "Bug" else "")
+            )
+
+            _labels = impactos if impactos else []
+
+            if _jira_ok:
+                try:
+                    with st.spinner("Criando ticket no Jira..."):
+                        _resp = _create_jira_ticket(_summary, _desc_full, _issue_type, _priority, _labels)
+                    if _resp.status_code in (200, 201):
+                        _data = _resp.json()
+                        _key = _data.get("key", "")
+                        _link = f"{JIRA_URL}/browse/{_key}"
+                        st.success(f"Ticket criado com sucesso! [{_key}]({_link})")
+                    else:
+                        st.error(f"Erro ao criar ticket no Jira ({_resp.status_code}): {_resp.text[:300]}")
+                except Exception as _ex:
+                    st.error(f"Falha na conexao com o Jira: {_ex}")
+            else:
+                # Modo preview sem Jira configurado
+                st.info("Jira nao configurado — preview do ticket que seria criado:")
+                st.json({
+                    "summary": _summary,
+                    "type": _issue_type,
+                    "priority": _priority,
+                    "reporter": user.get("name", "N/A"),
+                    "description": _desc_full,
+                    "labels": _labels,
+                })
+
+# =========================================================================
+# PAGE 9 — Admin (so para admins)
 # =========================================================================
 elif page == "Admin":
     if not user.get("is_admin"):
