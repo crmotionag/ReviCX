@@ -15,12 +15,15 @@ import requests as _requests
 
 # Carrega variaveis do .env
 _ENV_PATH = Path(__file__).parent.parent / ".env"
-if _ENV_PATH.exists():
-    for _line in _ENV_PATH.read_text(encoding="utf-8").splitlines():
-        _line = _line.strip()
-        if _line and not _line.startswith("#") and "=" in _line:
-            _k, _v = _line.split("=", 1)
-            os.environ.setdefault(_k.strip(), _v.strip())
+try:
+    if _ENV_PATH.exists():
+        for _line in _ENV_PATH.read_text(encoding="utf-8").splitlines():
+            _line = _line.strip()
+            if _line and not _line.startswith("#") and "=" in _line:
+                _k, _v = _line.split("=", 1)
+                os.environ.setdefault(_k.strip(), _v.strip())
+except (PermissionError, OSError):
+    pass
 
 JIRA_URL        = os.environ.get("JIRA_URL", "https://userevi.atlassian.net")
 JIRA_EMAIL      = os.environ.get("JIRA_EMAIL", "")
@@ -1506,7 +1509,6 @@ elif page == "Abrir Ticket":
     def _create_jira_ticket(summary, description, issue_type, priority, labels=None):
         """Cria um issue no Jira via REST API."""
         url = f"{JIRA_URL}/rest/api/3/issue"
-        auth = (_requests.auth.HTTPBasicAuth if hasattr(_requests.auth, "HTTPBasicAuth") else None)
         payload = {
             "fields": {
                 "project": {"key": JIRA_PROJECT},
@@ -1529,6 +1531,17 @@ elif page == "Abrir Ticket":
             timeout=10,
         )
         return resp
+
+    def _transition_jira_ticket(issue_key, transition_id):
+        """Move o issue para a coluna correta via transicao."""
+        url = f"{JIRA_URL}/rest/api/3/issue/{issue_key}/transitions"
+        _requests.post(
+            url,
+            json={"transition": {"id": transition_id}},
+            auth=(JIRA_EMAIL, JIRA_API_TOKEN),
+            headers={"Content-Type": "application/json"},
+            timeout=10,
+        )
 
     # --- Formulario ---
     with st.form("ticket_form", clear_on_submit=True):
@@ -1616,6 +1629,13 @@ elif page == "Abrir Ticket":
                         _data = _resp.json()
                         _key = _data.get("key", "")
                         _link = f"{JIRA_URL}/browse/{_key}"
+                        # Routing: areas afetadas → Prioridade; Bug → Bugs; Feature → Feature request
+                        if impactos:
+                            _transition_jira_ticket(_key, "12")   # Prioridade
+                        elif tipo == "Bug":
+                            _transition_jira_ticket(_key, "15")   # Bugs
+                        else:
+                            _transition_jira_ticket(_key, "16")   # Feature request
                         st.success(f"Ticket criado com sucesso! [{_key}]({_link})")
                     else:
                         st.error(f"Erro ao criar ticket no Jira ({_resp.status_code}): {_resp.text[:300]}")
