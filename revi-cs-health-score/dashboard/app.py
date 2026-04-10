@@ -1588,8 +1588,8 @@ elif page == "Abrir Ticket":
             f"{ticket_summary}"
         )
         # Stage por tipo: Bug → Pendente (Bug), Feature/Demanda → Pendente Feature
-        stage_map = {"Bug": "1049833765", "Feature Request": "1049833764", "Demanda Tecnica": "1049833764"}
-        priority_map = {"Bug": "HIGH", "Feature Request": "MEDIUM", "Demanda Tecnica": "MEDIUM"}
+        stage_map = {"Bug": "1049833765", "Feature Request": "1049833764", "Demanda Técnica": "1049833764"}
+        priority_map = {"Bug": "HIGH", "Feature Request": "MEDIUM", "Demanda Técnica": "MEDIUM"}
         ticket_resp = _requests.post(
             "https://api.hubapi.com/crm/v3/objects/tickets",
             headers=hs_headers,
@@ -1624,30 +1624,30 @@ elif page == "Abrir Ticket":
 
     # --- Formulario ---
     with st.form("ticket_form", clear_on_submit=True):
-        st.markdown("### Informacoes do Cliente")
+        st.markdown("### Informações do Cliente")
         fc1, fc2 = st.columns(2)
         with fc1:
             app_id = st.text_input("AppName do cliente *", placeholder="ex: minhaloja")
         with fc2:
             relacionamento = st.selectbox(
-                "Como esta o relacionamento do cliente com a plataforma? *",
+                "Como está o relacionamento do cliente com a plataforma? *",
                 ["Bom", "Neutro", "Ruim"],
             )
 
         urgencia = st.select_slider(
-            "Voce entende que e urgente para o cliente?",
+            "Você entende que é urgente para o cliente?",
             options=[1, 2, 3, 4, 5],
             value=3,
-            format_func=lambda x: {1: "1 — Baixa", 2: "2", 3: "3 — Media", 4: "4", 5: "5 — Critica"}[x],
+            format_func=lambda x: {1: "1 — Baixa", 2: "2", 3: "3 — Média", 4: "4", 5: "5 — Crítica"}[x],
         )
 
-        st.markdown("### Tipo de Solicitacao")
-        tipo = st.selectbox("Tipo de solicitacao *", ["Bug", "Feature Request", "Demanda Tecnica"])
+        st.markdown("### Tipo de Solicitação")
+        tipo = st.selectbox("Tipo de solicitação *", ["Bug", "Feature Request", "Demanda Técnica"])
 
         _desc_labels = {
             "Bug": ("Descreva o problema *", "Cole aqui o resultado do prompt do Marcelo no Gemini..."),
             "Feature Request": ("Descreva a funcionalidade desejada *", "Descreva o que precisa ser desenvolvido..."),
-            "Demanda Tecnica": ("Descreva a demanda tecnica *", "Descreva a integracao, configuracao ou ajuste tecnico necessario..."),
+            "Demanda Técnica": ("Descreva a demanda técnica *", "Descreva a integração, configuração ou ajuste técnico necessário..."),
         }
         descricao = st.text_area(
             _desc_labels[tipo][0],
@@ -1665,17 +1665,17 @@ elif page == "Abrir Ticket":
 
         impactos = []
         if tipo == "Bug":
-            st.markdown("**Esta afetando as areas abaixo?**")
+            st.markdown("**Está afetando as áreas abaixo?**")
             ci1, ci2 = st.columns(2)
             with ci1:
-                if st.checkbox("Automacao / Integracao"):
+                if st.checkbox("Automação / Integração"):
                     impactos.append("Automacao/Integracao")
                 if st.checkbox("Volumes grandes de clientes afetados"):
                     impactos.append("Volumes-grandes")
             with ci2:
-                if st.checkbox("Utilizacao do produto / campanha"):
+                if st.checkbox("Utilização do produto / campanha"):
                     impactos.append("Produto/Campanha")
-                if st.checkbox("Inbox instavel"):
+                if st.checkbox("Inbox instável"):
                     impactos.append("Inbox-instavel")
 
         submitted = st.form_submit_button("Abrir Ticket no Jira", use_container_width=True, type="primary")
@@ -1684,16 +1684,16 @@ elif page == "Abrir Ticket":
         # Validacao
         _erros = []
         if not app_id.strip():
-            _erros.append("AppName do cliente e obrigatorio.")
+            _erros.append("AppName do cliente é obrigatório.")
         if not descricao.strip():
-            _erros.append("Descricao e obrigatoria.")
+            _erros.append("Descrição é obrigatória.")
 
         if _erros:
             for e in _erros:
                 st.error(e)
         else:
             # Monta summary e descricao
-            _tipo_label = {"Bug": "BUG", "Feature Request": "FEATURE", "Demanda Tecnica": "DEMANDA"}[tipo]
+            _tipo_label = {"Bug": "BUG", "Feature Request": "FEATURE", "Demanda Técnica": "DEMANDA"}[tipo]
             _summary = f"[{_tipo_label}] {app_id.strip()} — {descricao.strip()[:80]}"
 
             _priority_map = {1: "Lowest", 2: "Low", 3: "Medium", 4: "High", 5: "Highest"}
@@ -1705,10 +1705,10 @@ elif page == "Abrir Ticket":
                 f"Solicitado por: {user.get('name', 'N/A')} ({user.get('area', '')} / {user.get('role', '')})\n\n"
                 f"AppName: {app_id.strip()}\n"
                 f"Relacionamento com a plataforma: {relacionamento}\n"
-                f"Urgencia (1-5): {urgencia}\n"
+                f"Urgência (1-5): {urgencia}\n"
                 f"Tipo: {tipo}\n\n"
-                f"Descricao:\n{descricao.strip()}\n\n"
-                + (f"Areas afetadas:\n{_impactos_txt}" if tipo == "Bug" else "")
+                f"Descrição:\n{descricao.strip()}\n\n"
+                + (f"Áreas afetadas:\n{_impactos_txt}" if tipo == "Bug" else "")
             )
 
             _labels = impactos if impactos else []
@@ -1729,7 +1729,7 @@ elif page == "Abrir Ticket":
                         elif tipo == "Feature Request":
                             _transition_jira_ticket(_key, "16")   # Feature request
                         else:
-                            _transition_jira_ticket(_key, "8")    # Customer Tasks (Demanda Tecnica)
+                            _transition_jira_ticket(_key, "8")    # Customer Tasks (Demanda Técnica)
                         if imagens:
                             _upload_jira_attachments(_key, imagens)
                         _hs_resp = _log_hubspot_activity(app_id.strip(), _key, _link, _summary, tipo)
