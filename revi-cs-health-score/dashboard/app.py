@@ -1809,6 +1809,17 @@ elif page == "Abrir Ticket":
                             st.warning("HubSpot: empresa nao encontrada para esse AppName.")
                         elif _hs_resp.status_code not in (200, 201):
                             st.warning(f"HubSpot: ticket nao criado ({_hs_resp.status_code}) — {_hs_resp.text[:200]}")
+                        else:
+                            # Adiciona label hs-{id} no Jira para Automations conseguirem fazer o sync
+                            _hs_ticket_id = _hs_resp.json().get("id", "")
+                            if _hs_ticket_id:
+                                _requests.put(
+                                    f"{JIRA_URL}/rest/api/3/issue/{_key}",
+                                    auth=(JIRA_EMAIL, JIRA_API_TOKEN),
+                                    headers={"Content-Type": "application/json"},
+                                    json={"update": {"labels": [{"add": f"hs-{_hs_ticket_id}"}]}},
+                                    timeout=10,
+                                )
                     else:
                         st.error(f"Erro ao criar ticket no Jira ({_resp.status_code}): {_resp.text[:300]}")
                 except Exception as _ex:
