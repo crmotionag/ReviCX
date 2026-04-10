@@ -1554,8 +1554,8 @@ elif page == "Abrir Ticket":
             timeout=10,
         )
 
-    def _log_hubspot_activity(app_name_value, jira_key, jira_link, ticket_summary):
-        """Busca empresa pelo gupshupapp e cria nota com o link do ticket Jira."""
+    def _log_hubspot_activity(app_name_value, jira_key, jira_link, ticket_summary, tipo):
+        """Busca empresa pelo gupshupapp e cria Ticket no HubSpot com o link do Jira."""
         hs_key = os.environ.get("HUBSPOT_API_KEY", "")
         if not hs_key:
             return
@@ -1581,31 +1581,30 @@ elif page == "Abrir Ticket":
             return
         company_id = results[0]["id"]
 
-        # 2. Criar nota com link do ticket
-        import datetime as _dt
-        ts_ms = int(_dt.datetime.utcnow().timestamp() * 1000)
-        note_body = (
-            f"Ticket Jira aberto via ReviCX Health Score Dashboard.\n\n"
-            f"Ticket: {jira_key}\n"
-            f"Link: {jira_link}\n"
-            f"Resumo: {ticket_summary}"
+        # 2. Criar Ticket no HubSpot associado à empresa
+        content = (
+            f"Ticket Jira: {jira_key}\n"
+            f"Link: {jira_link}\n\n"
+            f"{ticket_summary}"
         )
-        note_resp = _requests.post(
-            "https://api.hubapi.com/crm/v3/objects/notes",
+        priority_map = {"Bug": "HIGH", "Feature Request": "MEDIUM", "Demanda Tecnica": "MEDIUM"}
+        ticket_resp = _requests.post(
+            "https://api.hubapi.com/crm/v3/objects/tickets",
             headers=hs_headers,
             json={
                 "properties": {
-                    "hs_note_body": note_body,
-                    "hs_timestamp": str(ts_ms),
+                    "subject": ticket_summary,
+                    "content": content,
+                    "hs_ticket_priority": priority_map.get(tipo, "MEDIUM"),
                 },
                 "associations": [{
                     "to": {"id": company_id},
-                    "types": [{"associationCategory": "HUBSPOT_DEFINED", "associationTypeId": 190}],
+                    "types": [{"associationCategory": "HUBSPOT_DEFINED", "associationTypeId": 26}],
                 }],
             },
             timeout=10,
         )
-        return note_resp
+        return ticket_resp
 
     def _upload_jira_attachments(issue_key, files):
         """Faz upload de imagens como anexos no ticket Jira."""
@@ -1729,7 +1728,7 @@ elif page == "Abrir Ticket":
                             _transition_jira_ticket(_key, "8")    # Customer Tasks (Demanda Tecnica)
                         if imagens:
                             _upload_jira_attachments(_key, imagens)
-                        _log_hubspot_activity(app_id.strip(), _key, _link, _summary)
+                        _log_hubspot_activity(app_id.strip(), _key, _link, _summary, tipo)
                         st.success(f"Ticket criado com sucesso! [{_key}]({_link})")
                     else:
                         st.error(f"Erro ao criar ticket no Jira ({_resp.status_code}): {_resp.text[:300]}")
