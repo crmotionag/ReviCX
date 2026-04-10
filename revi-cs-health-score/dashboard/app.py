@@ -1563,11 +1563,16 @@ elif page == "Abrir Ticket":
         )
 
         st.markdown("### Tipo de Solicitacao")
-        tipo = st.selectbox("E Bug ou Feature Request? *", ["Bug", "Feature Request"])
+        tipo = st.selectbox("Tipo de solicitacao *", ["Bug", "Feature Request", "Demanda Tecnica"])
 
+        _desc_labels = {
+            "Bug": ("Descreva o problema *", "Cole aqui o resultado do prompt do Marcelo no Gemini..."),
+            "Feature Request": ("Descreva a funcionalidade desejada *", "Descreva o que precisa ser desenvolvido..."),
+            "Demanda Tecnica": ("Descreva a demanda tecnica *", "Descreva a integracao, configuracao ou ajuste tecnico necessario..."),
+        }
         descricao = st.text_area(
-            "Descreva o problema *" if tipo == "Bug" else "Descreva a funcionalidade desejada *",
-            placeholder="Cole aqui o resultado do prompt do Marcelo no Gemini..." if tipo == "Bug" else "Descreva o que precisa ser desenvolvido...",
+            _desc_labels[tipo][0],
+            placeholder=_desc_labels[tipo][1],
             height=180,
         )
 
@@ -1601,7 +1606,7 @@ elif page == "Abrir Ticket":
                 st.error(e)
         else:
             # Monta summary e descricao
-            _tipo_label = "BUG" if tipo == "Bug" else "FEATURE"
+            _tipo_label = {"Bug": "BUG", "Feature Request": "FEATURE", "Demanda Tecnica": "DEMANDA"}[tipo]
             _summary = f"[{_tipo_label}] AppID {app_id.strip()} — {descricao.strip()[:80]}"
 
             _priority_map = {1: "Lowest", 2: "Low", 3: "Medium", 4: "High", 5: "Highest"}
@@ -1629,13 +1634,13 @@ elif page == "Abrir Ticket":
                         _data = _resp.json()
                         _key = _data.get("key", "")
                         _link = f"{JIRA_URL}/browse/{_key}"
-                        # Routing: areas afetadas → Prioridade; Bug → Bugs; Feature → Feature request
+                        # Routing: areas afetadas → Prioridade; Bug → Bugs; Feature/Demanda → Feature request
                         if impactos:
                             _transition_jira_ticket(_key, "12")   # Prioridade
                         elif tipo == "Bug":
                             _transition_jira_ticket(_key, "15")   # Bugs
                         else:
-                            _transition_jira_ticket(_key, "16")   # Feature request
+                            _transition_jira_ticket(_key, "16")   # Feature request (Feature Request e Demanda Tecnica)
                         st.success(f"Ticket criado com sucesso! [{_key}]({_link})")
                     else:
                         st.error(f"Erro ao criar ticket no Jira ({_resp.status_code}): {_resp.text[:300]}")
