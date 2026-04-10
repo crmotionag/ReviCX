@@ -1728,8 +1728,12 @@ elif page == "Abrir Ticket":
                             _transition_jira_ticket(_key, "8")    # Customer Tasks (Demanda Tecnica)
                         if imagens:
                             _upload_jira_attachments(_key, imagens)
-                        _log_hubspot_activity(app_id.strip(), _key, _link, _summary, tipo)
+                        _hs_resp = _log_hubspot_activity(app_id.strip(), _key, _link, _summary, tipo)
                         st.success(f"Ticket criado com sucesso! [{_key}]({_link})")
+                        if _hs_resp is None:
+                            st.warning("HubSpot: empresa nao encontrada para esse AppName.")
+                        elif _hs_resp.status_code not in (200, 201):
+                            st.warning(f"HubSpot: ticket nao criado ({_hs_resp.status_code}) — {_hs_resp.text[:200]}")
                     else:
                         st.error(f"Erro ao criar ticket no Jira ({_resp.status_code}): {_resp.text[:300]}")
                 except Exception as _ex:
