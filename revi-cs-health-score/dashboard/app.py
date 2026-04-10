@@ -1596,6 +1596,8 @@ elif page == "Abrir Ticket":
                     "subject": ticket_summary,
                     "content": content,
                     "hs_ticket_priority": priority_map.get(tipo, "MEDIUM"),
+                    "hs_pipeline": "719982980",
+                    "hs_pipeline_stage": "1049833764",
                 },
                 "associations": [{
                     "to": {"id": company_id},
