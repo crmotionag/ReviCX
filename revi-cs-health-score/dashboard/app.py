@@ -1517,7 +1517,22 @@ elif page == "Abrir Ticket":
     if not _jira_ok:
         st.warning("Integracao com Jira nao configurada. Adicione JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN e JIRA_PROJECT_KEY no arquivo .env")
 
-    def _create_jira_ticket(summary, description, issue_type, priority, labels=None):
+    _MODULO_OPTIONS = {
+        "Integração":        "10126",
+        "Automação":         "10127",
+        "Conversa":          "10128",
+        "Segmentação":       "10129",
+        "WhatsApp (Envio)":  "10130",
+        "E-mail (Envio)":    "10131",
+        "Captação de Lead":  "10132",
+        "Resultados":        "10133",
+        "Cashback":          "10134",
+        "IA":                "10135",
+        "Home":              "10170",
+        "Configuração":      "10203",
+    }
+
+    def _create_jira_ticket(summary, description, issue_type, priority, labels=None, modulo_id=None):
         """Cria um issue no Jira via REST API."""
         url = f"{JIRA_URL}/rest/api/3/issue"
         payload = {
@@ -1532,6 +1547,7 @@ elif page == "Abrir Ticket":
                 "issuetype": {"name": issue_type},
                 "priority": {"name": priority},
                 **({"labels": labels} if labels else {}),
+                **({"customfield_10342": {"id": modulo_id}} if modulo_id else {}),
             }
         }
         resp = _requests.post(
@@ -1643,6 +1659,7 @@ elif page == "Abrir Ticket":
 
         st.markdown("### Tipo de Solicitação")
         tipo = st.selectbox("Tipo de solicitação *", ["Bug", "Feature Request", "Demanda Técnica"])
+        modulo = st.selectbox("Módulo *", [""] + list(_MODULO_OPTIONS.keys()), format_func=lambda x: "Selecione o módulo..." if x == "" else x)
 
         _desc_labels = {
             "Bug": ("Descreva o problema *", "Cole aqui o resultado do prompt do Marcelo no Gemini..."),
@@ -1687,6 +1704,8 @@ elif page == "Abrir Ticket":
             _erros.append("AppName do cliente é obrigatório.")
         if not descricao.strip():
             _erros.append("Descrição é obrigatória.")
+        if not modulo:
+            _erros.append("Módulo é obrigatório.")
 
         if _erros:
             for e in _erros:
@@ -1716,7 +1735,7 @@ elif page == "Abrir Ticket":
             if _jira_ok:
                 try:
                     with st.spinner("Criando ticket no Jira..."):
-                        _resp = _create_jira_ticket(_summary, _desc_full, _issue_type, _priority, _labels)
+                        _resp = _create_jira_ticket(_summary, _desc_full, _issue_type, _priority, _labels, _MODULO_OPTIONS.get(modulo))
                     if _resp.status_code in (200, 201):
                         _data = _resp.json()
                         _key = _data.get("key", "")
