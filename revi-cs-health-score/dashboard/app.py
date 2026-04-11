@@ -1532,7 +1532,7 @@ elif page == "Abrir Ticket":
         "Configuração":      "10203",
     }
 
-    def _create_jira_ticket(summary, description, issue_type, priority, labels=None, modulo_id=None):
+    def _create_jira_ticket(summary, description, issue_type, priority, labels=None):
         """Cria um issue no Jira via REST API."""
         url = f"{JIRA_URL}/rest/api/3/issue"
         payload = {
@@ -1547,7 +1547,6 @@ elif page == "Abrir Ticket":
                 "issuetype": {"name": issue_type},
                 "priority": {"name": priority},
                 **({"labels": labels} if labels else {}),
-                **({"customfield_10342": {"id": modulo_id}} if modulo_id else {}),
             }
         }
         resp = _requests.post(
@@ -1558,6 +1557,16 @@ elif page == "Abrir Ticket":
             timeout=10,
         )
         return resp
+
+    def _set_jira_modulo(issue_key, modulo_id):
+        """Atualiza o campo Módulo via PUT (edit screen aceita campos que create screen não aceita)."""
+        _requests.put(
+            f"{JIRA_URL}/rest/api/3/issue/{issue_key}",
+            auth=(JIRA_EMAIL, JIRA_API_TOKEN),
+            headers={"Content-Type": "application/json"},
+            json={"fields": {"customfield_10342": {"id": modulo_id}}},
+            timeout=10,
+        )
 
     def _transition_jira_ticket(issue_key, transition_id):
         """Move o issue para a coluna correta via transicao."""
@@ -1735,11 +1744,14 @@ elif page == "Abrir Ticket":
             if _jira_ok:
                 try:
                     with st.spinner("Criando ticket no Jira..."):
-                        _resp = _create_jira_ticket(_summary, _desc_full, _issue_type, _priority, _labels, _MODULO_OPTIONS.get(modulo))
+                        _resp = _create_jira_ticket(_summary, _desc_full, _issue_type, _priority, _labels)
                     if _resp.status_code in (200, 201):
                         _data = _resp.json()
                         _key = _data.get("key", "")
                         _link = f"{JIRA_URL}/browse/{_key}"
+                        # Define módulo via PUT separado (não está na tela de criação)
+                        if modulo:
+                            _set_jira_modulo(_key, _MODULO_OPTIONS.get(modulo))
                         # Routing: areas afetadas → Prioridade; Bug → Bugs; Feature → Feature request; Demanda → Customer Tasks
                         if impactos:
                             _transition_jira_ticket(_key, "12")   # Prioridade
