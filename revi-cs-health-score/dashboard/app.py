@@ -1654,6 +1654,11 @@ elif page == "Abrir Ticket":
         with fc1:
             app_id = st.text_input("AppName do cliente *", placeholder="ex: minhaloja")
         with fc2:
+            nome_cliente = st.text_input("Nome do cliente *", placeholder="ex: Mury The Brand")
+        fc3, fc4 = st.columns(2)
+        with fc3:
+            titulo_demanda = st.text_input("Título da demanda *", placeholder="ex: Botão de envio não funciona")
+        with fc4:
             relacionamento = st.selectbox(
                 "Como está o relacionamento do cliente com a plataforma? *",
                 ["Bom", "Neutro", "Ruim"],
@@ -1711,6 +1716,10 @@ elif page == "Abrir Ticket":
         _erros = []
         if not app_id.strip():
             _erros.append("AppName do cliente é obrigatório.")
+        if not nome_cliente.strip():
+            _erros.append("Nome do cliente é obrigatório.")
+        if not titulo_demanda.strip():
+            _erros.append("Título da demanda é obrigatório.")
         if not descricao.strip():
             _erros.append("Descrição é obrigatória.")
         if not modulo:
@@ -1722,7 +1731,7 @@ elif page == "Abrir Ticket":
         else:
             # Monta summary e descricao
             _tipo_label = {"Bug": "BUG", "Feature Request": "FEATURE", "Demanda Técnica": "DEMANDA"}[tipo]
-            _summary = f"[{_tipo_label}] {app_id.strip()} — {' '.join(descricao.strip().splitlines())[:80]}"
+            _summary = f"[{_tipo_label}] {app_id.strip()} - {nome_cliente.strip()} - {titulo_demanda.strip()}"
 
             _priority_map = {1: "Lowest", 2: "Low", 3: "Medium", 4: "High", 5: "Highest"}
             _priority = _priority_map[urgencia]
@@ -1732,6 +1741,7 @@ elif page == "Abrir Ticket":
             _desc_full = (
                 f"Solicitado por: {user.get('name', 'N/A')} ({user.get('area', '')} / {user.get('role', '')})\n\n"
                 f"AppName: {app_id.strip()}\n"
+                f"Cliente: {nome_cliente.strip()}\n"
                 f"Relacionamento com a plataforma: {relacionamento}\n"
                 f"Urgência (1-5): {urgencia}\n"
                 f"Tipo: {tipo}\n\n"
