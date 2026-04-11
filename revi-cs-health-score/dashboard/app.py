@@ -1735,7 +1735,7 @@ elif page == "Abrir Ticket":
 
             _priority_map = {1: "Lowest", 2: "Low", 3: "Medium", 4: "High", 5: "Highest"}
             _priority = _priority_map[urgencia]
-            _issue_type = "Bug" if tipo == "Bug" else "História"
+            _issue_type = "Bug" if tipo == "Bug" else "Tarefa"
 
             _impactos_txt = "\n".join(f"  - {i}" for i in impactos) if impactos else "  Nenhum informado"
             _desc_full = (
