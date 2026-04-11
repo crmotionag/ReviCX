@@ -1722,7 +1722,7 @@ elif page == "Abrir Ticket":
         else:
             # Monta summary e descricao
             _tipo_label = {"Bug": "BUG", "Feature Request": "FEATURE", "Demanda Técnica": "DEMANDA"}[tipo]
-            _summary = f"[{_tipo_label}] {app_id.strip()} — {descricao.strip()[:80]}"
+            _summary = f"[{_tipo_label}] {app_id.strip()} — {' '.join(descricao.strip().splitlines())[:80]}"
 
             _priority_map = {1: "Lowest", 2: "Low", 3: "Medium", 4: "High", 5: "Highest"}
             _priority = _priority_map[urgencia]
