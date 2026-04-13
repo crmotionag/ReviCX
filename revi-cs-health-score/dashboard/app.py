@@ -11,6 +11,8 @@ from sqlalchemy import create_engine, text
 from datetime import datetime
 import hashlib
 import os
+import random
+import json
 import requests as _requests
 
 # Carrega variaveis: st.secrets (Streamlit Cloud) > .env (local)
@@ -308,9 +310,45 @@ DB_PATH = Path(__file__).parent.parent / "data" / "revi_cs.db"
 AREAS = ["Customer Success", "CX", "Suporte", "Produto", "Comercial", "Marketing", "Diretoria"]
 ROLES = ["Gerente", "Supervisor", "Analista", "Assistente"]
 
+MODULES = [
+    "Visao Geral",
+    "Carteira do CSM",
+    "Upsell",
+    "Abrir Ticket",
+    "Alertas",
+    "Performance CSM",
+    "Receita (GRR/NRR)",
+    "NPS",
+]
+
 
 def get_engine():
-    return create_engine(f"sqlite:///{DB_PATH}")
+    engine = create_engine(f"sqlite:///{DB_PATH}")
+    # Migrate: add new columns if they don't exist yet
+    with engine.begin() as conn:
+        existing = {row[1] for row in conn.execute(text("PRAGMA table_info(app_users)")).fetchall()}
+        if "must_change_password" not in existing:
+            conn.execute(text("ALTER TABLE app_users ADD COLUMN must_change_password BOOLEAN DEFAULT 0"))
+        if "modules" not in existing:
+            conn.execute(text("ALTER TABLE app_users ADD COLUMN modules TEXT DEFAULT 'all'"))
+    return engine
+
+
+def get_user_modules(user: dict) -> list[str]:
+    """Retorna lista de modulos permitidos para o usuario."""
+    if user.get("is_admin"):
+        return MODULES + ["Admin"]
+    raw = user.get("modules", "all")
+    if raw == "all" or not raw:
+        return MODULES
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return MODULES
+
+
+def gen_temp_password() -> str:
+    return "revi" + str(random.randint(1000, 9999))
 
 
 def hash_pw(pw):
@@ -333,6 +371,7 @@ def init_auth():
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
         st.session_state.user = None
+        st.session_state.must_change_pw = False
 
 
 def login_page():
@@ -373,6 +412,7 @@ def login_page():
                     st.session_state.authenticated = True
                     st.session_state.user = user
                     st.session_state.login_error = False
+                    st.session_state.must_change_pw = bool(user.get("must_change_password", 0))
                     # Update last_login
                     engine = get_engine()
                     with engine.begin() as conn:
@@ -395,16 +435,28 @@ def admin_page():
 
     # --- Criar novo usuario ---
     st.subheader("Criar Novo Usuario")
+
+    # Store credentials card info outside form so it persists after submit
+    if "new_user_credentials" not in st.session_state:
+        st.session_state.new_user_credentials = None
+
     with st.form("create_user_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
         with col1:
             new_name = st.text_input("Nome completo *")
             new_email = st.text_input("Email *", placeholder="nome@empresa.com")
-            new_password = st.text_input("Senha *", type="password", placeholder="Min. 6 caracteres")
         with col2:
             new_area = st.selectbox("Area *", AREAS)
             new_role = st.selectbox("Cargo *", ROLES)
             new_admin = st.checkbox("Administrador?", help="Admins podem criar e gerenciar outros usuarios")
+
+        st.markdown("**Modulos permitidos** (desmarque para restringir acesso)")
+        mod_cols = st.columns(4)
+        selected_modules = []
+        for i, mod in enumerate(MODULES):
+            with mod_cols[i % 4]:
+                if st.checkbox(mod, value=True, key=f"new_mod_{mod}"):
+                    selected_modules.append(mod)
 
         create_submitted = st.form_submit_button("Criar Usuario", use_container_width=True, type="primary")
 
@@ -414,26 +466,32 @@ def admin_page():
                 errors.append("Nome e obrigatorio")
             if not new_email.strip() or "@" not in new_email:
                 errors.append("Email invalido")
-            if not new_password or len(new_password) < 6:
-                errors.append("Senha deve ter no minimo 6 caracteres")
             if errors:
                 for e in errors:
                     st.error(e)
             else:
+                temp_pw = gen_temp_password()
+                modules_val = "all" if len(selected_modules) == len(MODULES) else json.dumps(selected_modules, ensure_ascii=False)
                 try:
                     with engine.begin() as conn:
                         conn.execute(text("""
-                            INSERT INTO app_users (name, email, password_hash, area, role, is_active, is_admin)
-                            VALUES (:name, :email, :pwd, :area, :role, 1, :admin)
+                            INSERT INTO app_users (name, email, password_hash, area, role, is_active, is_admin, must_change_password, modules)
+                            VALUES (:name, :email, :pwd, :area, :role, 1, :admin, 1, :modules)
                         """), {
                             "name": new_name.strip(),
                             "email": new_email.strip().lower(),
-                            "pwd": hash_pw(new_password),
+                            "pwd": hash_pw(temp_pw),
                             "area": new_area,
                             "role": new_role,
                             "admin": 1 if new_admin else 0,
+                            "modules": modules_val,
                         })
-                    st.success(f"Usuario {new_name} criado com sucesso!")
+                    st.session_state.new_user_credentials = {
+                        "name": new_name.strip(),
+                        "email": new_email.strip().lower(),
+                        "password": temp_pw,
+                        "modules": selected_modules if selected_modules != MODULES else ["Todos os modulos"],
+                    }
                     st.rerun()
                 except Exception as ex:
                     if "UNIQUE constraint" in str(ex):
@@ -441,25 +499,68 @@ def admin_page():
                     else:
                         st.error(f"Erro: {ex}")
 
+    # Credentials card displayed outside the form
+    if st.session_state.new_user_credentials:
+        creds = st.session_state.new_user_credentials
+        mods_str = ", ".join(creds["modules"])
+        whatsapp_text = (
+            f"Ola {creds['name']}! Seu acesso ao ReviCX Health Score foi criado.\n"
+            f"Email: {creds['email']}\n"
+            f"Senha temporaria: {creds['password']}\n"
+            f"Modulos: {mods_str}\n"
+            f"Voce sera solicitado a trocar a senha no primeiro acesso."
+        )
+        st.markdown(f"""
+        <div style="background:#d4edda;border:1px solid #28a745;border-radius:8px;padding:20px;margin:12px 0;">
+            <h4 style="color:#155724;margin:0 0 12px 0;">&#9989; Usuario criado com sucesso!</h4>
+            <p style="margin:4px 0;"><strong>Nome:</strong> {creds['name']}</p>
+            <p style="margin:4px 0;"><strong>Email:</strong> {creds['email']}</p>
+            <p style="margin:4px 0;"><strong>Senha temporaria:</strong> <code style="background:#c3e6cb;padding:2px 6px;border-radius:4px;">{creds['password']}</code></p>
+            <p style="margin:4px 0;"><strong>Modulos:</strong> {mods_str}</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        col_copy, col_dismiss = st.columns([2, 1])
+        with col_copy:
+            st.code(whatsapp_text, language=None)
+        with col_dismiss:
+            if st.button("Fechar", key="dismiss_creds"):
+                st.session_state.new_user_credentials = None
+                st.rerun()
+
     # --- Lista de usuarios ---
     st.subheader("Usuarios Cadastrados")
-    users_df = pd.read_sql("SELECT id, name, email, area, role, is_active, is_admin, created_at, last_login FROM app_users ORDER BY name", engine)
+    users_df = pd.read_sql(
+        "SELECT id, name, email, area, role, is_active, is_admin, modules, must_change_password, created_at, last_login FROM app_users ORDER BY name",
+        engine,
+    )
 
     if len(users_df) == 0:
         st.info("Nenhum usuario cadastrado.")
         return
 
+    def format_modules(raw):
+        if raw == "all" or not raw:
+            return "Todos"
+        try:
+            mods = json.loads(raw)
+            return ", ".join(mods)
+        except Exception:
+            return str(raw)
+
     # Format display
     display = users_df.copy()
     display["Status"] = display["is_active"].map({1: "Ativo", 0: "Inativo"})
     display["Admin"] = display["is_admin"].map({1: "Sim", 0: "Nao"})
+    display["Troca Senha"] = display["must_change_password"].map({1: "Pendente", 0: "-"})
+    display["Modulos"] = display["modules"].apply(format_modules)
     display = display.rename(columns={
         "name": "Nome", "email": "Email", "area": "Area",
         "role": "Cargo", "created_at": "Criado em", "last_login": "Ultimo Login",
     })
 
     st.dataframe(
-        display[["Nome", "Email", "Area", "Cargo", "Status", "Admin", "Criado em", "Ultimo Login"]],
+        display[["Nome", "Email", "Area", "Cargo", "Status", "Admin", "Modulos", "Troca Senha", "Criado em", "Ultimo Login"]],
         use_container_width=True,
         hide_index=True,
     )
@@ -503,11 +604,13 @@ def admin_page():
 
         with col3:
             if st.button("Resetar Senha", key=f"reset_{sel_user['id']}", use_container_width=True):
-                new_pw = "revi2026"
+                new_pw = gen_temp_password()
                 with engine.begin() as conn:
-                    conn.execute(text("UPDATE app_users SET password_hash = :pwd WHERE id = :uid"),
-                                 {"pwd": hash_pw(new_pw), "uid": int(sel_user["id"])})
-                st.success(f"Senha de {sel_user['name']} resetada para: {new_pw}")
+                    conn.execute(
+                        text("UPDATE app_users SET password_hash = :pwd, must_change_password = 1 WHERE id = :uid"),
+                        {"pwd": hash_pw(new_pw), "uid": int(sel_user["id"])},
+                    )
+                st.success(f"Senha de {sel_user['name']} resetada para: **{new_pw}** (usuario devera trocar no proximo login)")
 
         with col4:
             if int(sel_user["id"]) != st.session_state.user["id"]:
@@ -516,6 +619,35 @@ def admin_page():
                         conn.execute(text("DELETE FROM app_users WHERE id = :uid"), {"uid": int(sel_user["id"])})
                     st.warning(f"{sel_user['name']} excluido.")
                     st.rerun()
+
+        # --- Editar modulos ---
+        st.markdown(f"**Modulos de acesso — {sel_user['name']}**")
+
+        raw_mods = sel_user["modules"] if "modules" in sel_user.index else "all"
+        if raw_mods is None or (isinstance(raw_mods, float)) or raw_mods == "all":
+            current_mods = MODULES[:]
+        else:
+            try:
+                current_mods = json.loads(raw_mods)
+            except Exception:
+                current_mods = MODULES[:]
+
+        mod_edit_cols = st.columns(4)
+        new_selected = []
+        for i, mod in enumerate(MODULES):
+            with mod_edit_cols[i % 4]:
+                if st.checkbox(mod, value=(mod in current_mods), key=f"edit_mod_{sel_user['id']}_{mod}"):
+                    new_selected.append(mod)
+
+        if st.button("Salvar modulos", key=f"save_mods_{sel_user['id']}", type="primary"):
+            new_modules_val = "all" if len(new_selected) == len(MODULES) else json.dumps(new_selected, ensure_ascii=False)
+            with engine.begin() as conn:
+                conn.execute(
+                    text("UPDATE app_users SET modules = :m WHERE id = :uid"),
+                    {"m": new_modules_val, "uid": int(sel_user["id"])},
+                )
+            st.success(f"Modulos de {sel_user['name']} atualizados.")
+            st.rerun()
 
 
 # ---------------------------------------------------------------------------
@@ -548,12 +680,63 @@ def load_data():
 
 
 # ---------------------------------------------------------------------------
+# Change password page
+# ---------------------------------------------------------------------------
+def change_password_page():
+    """Tela de troca de senha obrigatoria no primeiro login."""
+    st.markdown("<div style='margin-top:8vh;'></div>", unsafe_allow_html=True)
+    col_spacer1, col_form, col_spacer2 = st.columns([1, 1.2, 1])
+    with col_form:
+        st.markdown(f"""
+        <div style="background:linear-gradient(135deg,{BLUE_DARK},{BLUE_PRIMARY});
+                    padding:32px 40px 24px 40px; border-radius:16px 16px 0 0;
+                    text-align:center; box-shadow:0 4px 16px rgba(26,58,107,0.2);">
+            <p style="color:#FFF; font-size:1.1rem; font-weight:600; margin:0;">Defina sua nova senha</p>
+            <p style="color:rgba(255,255,255,0.75); font-size:0.85rem; margin:8px 0 0 0;">
+                Por seguranca, troque a senha temporaria antes de continuar.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        with st.form("change_pw_form"):
+            new_pw = st.text_input("Nova senha", type="password", placeholder="Min. 6 caracteres")
+            confirm_pw = st.text_input("Confirmar nova senha", type="password")
+            save = st.form_submit_button("Salvar senha", use_container_width=True, type="primary")
+
+            if save:
+                if len(new_pw) < 6:
+                    st.error("A senha deve ter no minimo 6 caracteres.")
+                elif new_pw != confirm_pw:
+                    st.error("As senhas nao coincidem.")
+                else:
+                    engine = get_engine()
+                    uid = st.session_state.user["id"]
+                    with engine.begin() as conn:
+                        conn.execute(
+                            text("UPDATE app_users SET password_hash = :pwd, must_change_password = 0 WHERE id = :uid"),
+                            {"pwd": hash_pw(new_pw), "uid": uid},
+                        )
+                    st.session_state.must_change_pw = False
+                    # Refresh user in session
+                    with engine.connect() as conn:
+                        row = conn.execute(text("SELECT * FROM app_users WHERE id = :uid"), {"uid": uid}).mappings().first()
+                    if row:
+                        st.session_state.user = dict(row)
+                    st.rerun()
+
+
+# ---------------------------------------------------------------------------
 # AUTH GATE — tudo abaixo so roda se autenticado
 # ---------------------------------------------------------------------------
 init_auth()
 
 if not st.session_state.authenticated:
     login_page()
+    st.stop()
+
+# Forcar troca de senha se necessario
+if st.session_state.get("must_change_pw"):
+    change_password_page()
     st.stop()
 
 # --- Usuario autenticado daqui pra baixo ---
@@ -642,18 +825,10 @@ with st.sidebar:
     )
     st.markdown("---")
 
-    # Menu — admin so aparece para admins
-    menu_items = [
-        "Visao Geral",
-        "Carteira do CSM",
-        "Upsell",
-        "Abrir Ticket",
-        "Alertas",
-        "Performance CSM",
-        "Receita (GRR/NRR)",
-        "NPS",
-    ]
-    if user.get("is_admin"):
+    # Menu — filtrado pelos modulos permitidos do usuario
+    allowed = get_user_modules(user)
+    menu_items = [m for m in MODULES if m in allowed]
+    if user.get("is_admin") and "Admin" not in menu_items:
         menu_items.append("Admin")
 
     page = st.radio("Menu", menu_items, label_visibility="collapsed")
@@ -1636,16 +1811,38 @@ elif page == "Abrir Ticket":
         return ticket_resp
 
     def _upload_jira_attachments(issue_key, files):
-        """Faz upload de imagens como anexos no ticket Jira."""
+        """Faz upload de imagens e vídeos como anexos no ticket Jira."""
         url = f"{JIRA_URL}/rest/api/3/issue/{issue_key}/attachments"
         for f in files:
+            mime = f.type or "application/octet-stream"
             _requests.post(
                 url,
                 headers={"X-Atlassian-Token": "no-check"},
-                files={"file": (f.name, f.getvalue(), f.type)},
+                files={"file": (f.name, f.getvalue(), mime)},
                 auth=(JIRA_EMAIL, JIRA_API_TOKEN),
-                timeout=30,
+                timeout=120,  # vídeos podem ser maiores
             )
+
+    # --- Tipo fora do form para permitir disclaimer reativo ---
+    st.markdown("### Tipo de Solicitação")
+    tipo = st.selectbox("Tipo de solicitação *", ["Bug", "Feature Request", "Demanda Técnica"], key="ticket_tipo")
+
+    if tipo == "Bug":
+        st.markdown(
+            """
+            <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:14px 18px;margin:8px 0 16px 0;">
+                <strong>⚠️ Antes de abrir um Bug, você já passou pelo prompt do Marcelo?</strong><br>
+                <span style="font-size:0.9rem;">Use o Gem do Marcelo no Gemini para diagnosticar o problema antes de registrar.
+                O resultado deve ser colado na descrição abaixo.</span><br><br>
+                <a href="https://gemini.google.com/gem/1h9ivK-TDClkBr37H7mNTxNy--BG55TTO?usp=sharing"
+                   target="_blank"
+                   style="background:#ffc107;color:#212529;padding:6px 14px;border-radius:6px;text-decoration:none;font-weight:600;font-size:0.88rem;">
+                   Abrir Prompt do Marcelo no Gemini →
+                </a>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     # --- Formulario ---
     with st.form("ticket_form", clear_on_submit=True):
@@ -1671,8 +1868,6 @@ elif page == "Abrir Ticket":
             format_func=lambda x: {1: "1 — Baixa", 2: "2", 3: "3 — Média", 4: "4", 5: "5 — Crítica"}[x],
         )
 
-        st.markdown("### Tipo de Solicitação")
-        tipo = st.selectbox("Tipo de solicitação *", ["Bug", "Feature Request", "Demanda Técnica"])
         modulo = st.selectbox("Módulo *", [""] + list(_MODULO_OPTIONS.keys()), format_func=lambda x: "Selecione o módulo..." if x == "" else x)
 
         _desc_labels = {
@@ -1687,11 +1882,11 @@ elif page == "Abrir Ticket":
             key="descricao_input",
         )
 
-        imagens = st.file_uploader(
-            "Imagens (opcional)",
-            type=["png", "jpg", "jpeg", "gif", "webp"],
+        anexos = st.file_uploader(
+            "Imagens e vídeos (opcional)",
+            type=["png", "jpg", "jpeg", "gif", "webp", "mp4", "mov", "avi", "webm", "mkv"],
             accept_multiple_files=True,
-            key="ticket_images",
+            key="ticket_anexos",
         )
 
         impactos = []
@@ -1771,8 +1966,8 @@ elif page == "Abrir Ticket":
                             _transition_jira_ticket(_key, "16")   # Feature request
                         else:
                             _transition_jira_ticket(_key, "8")    # Customer Tasks (Demanda Técnica)
-                        if imagens:
-                            _upload_jira_attachments(_key, imagens)
+                        if anexos:
+                            _upload_jira_attachments(_key, anexos)
                         _hs_resp = _log_hubspot_activity(app_id.strip(), _key, _link, _summary, tipo)
                         st.success(f"Ticket criado com sucesso! [{_key}]({_link})")
                         if _hs_resp is None:

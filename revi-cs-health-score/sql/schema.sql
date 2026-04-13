@@ -224,6 +224,8 @@ CREATE TABLE IF NOT EXISTS app_users (
     role TEXT NOT NULL,
     is_active BOOLEAN DEFAULT 1,
     is_admin BOOLEAN DEFAULT 0,
+    must_change_password BOOLEAN DEFAULT 0,
+    modules TEXT DEFAULT 'all',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     last_login DATETIME
 );
