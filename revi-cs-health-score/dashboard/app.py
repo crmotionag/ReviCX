@@ -46,7 +46,7 @@ JIRA_CLOUD_ID   = os.environ.get("JIRA_CLOUD_ID", "bac96881-c73c-48dc-aca3-2a335
 # ---------------------------------------------------------------------------
 st.set_page_config(
     page_title="ReviCX Health Score",
-    page_icon="https://rfrm.io/favicon.ico",
+    page_icon=str(Path(__file__).parent / "assets" / "favicon.ico"),
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -377,7 +377,7 @@ def init_auth():
 def login_page():
     """Tela de login com KV ReviCX."""
     import base64 as _b64
-    _logo_login = Path(__file__).parent / "assets" / "logo-revi-white.png"
+    _logo_login = Path(__file__).parent / "assets" / "revi-logo-white.png"
     _logo_b64 = _b64.b64encode(_logo_login.read_bytes()).decode()
 
     if "login_error" not in st.session_state:
@@ -804,7 +804,7 @@ user = st.session_state.user
 with st.sidebar:
     # Logo
     import base64 as _b64_sidebar
-    _logo_sidebar = Path(__file__).parent / "assets" / "logo-revi-white.png"
+    _logo_sidebar = Path(__file__).parent / "assets" / "revi-logo-white.png"
     _logo_sidebar_b64 = _b64_sidebar.b64encode(_logo_sidebar.read_bytes()).decode()
     st.markdown(
         f'<div style="text-align:center; padding:16px 0 4px 0;">'
