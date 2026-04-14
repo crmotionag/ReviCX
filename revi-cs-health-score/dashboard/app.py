@@ -57,6 +57,7 @@ st.set_page_config(
 BLUE_DARK = "#1A3A6B"
 BLUE_PRIMARY = "#2563EB"
 BLUE_LIGHT = "#DBEAFE"
+REVI_GREEN = "#3DB549"
 BG_PAGE = "#F0F4F8"
 BG_CARD = "#FFFFFF"
 TEXT_DARK = "#1E293B"
@@ -298,6 +299,34 @@ st.markdown(f"""
     [data-testid="stSidebar"] button span {{
         color: #000000 !important;
     }}
+
+    /* ---- Botoes primary: cor Revi ---- */
+    [data-testid="stFormSubmitButton"] button,
+    .stButton > button[kind="primary"],
+    button[kind="primary"] {{
+        background-color: {REVI_GREEN} !important;
+        border-color: {REVI_GREEN} !important;
+        color: #ffffff !important;
+    }}
+    [data-testid="stFormSubmitButton"] button:hover,
+    .stButton > button[kind="primary"]:hover,
+    button[kind="primary"]:hover {{
+        background-color: #319f3e !important;
+        border-color: #319f3e !important;
+    }}
+    [data-testid="stFormSubmitButton"] button p,
+    [data-testid="stFormSubmitButton"] button span,
+    .stButton > button[kind="primary"] p,
+    .stButton > button[kind="primary"] span {{
+        color: #ffffff !important;
+    }}
+
+    /* ---- Login header: textos brancos (protege contra regra global) ---- */
+    .login-header p,
+    .login-header span,
+    .login-header div {{
+        color: #ffffff !important;
+    }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -390,7 +419,7 @@ def login_page():
     with col_form:
         # Logo + título dentro da coluna do form
         st.markdown(f"""
-        <div style="background:linear-gradient(135deg,{BLUE_DARK},{BLUE_PRIMARY});
+        <div class="login-header" style="background:linear-gradient(135deg,{BLUE_DARK},{BLUE_PRIMARY});
                     padding:32px 40px 24px 40px; border-radius:16px 16px 0 0;
                     text-align:center; box-shadow:0 4px 16px rgba(26,58,107,0.2);">
             <img src="data:image/x-icon;base64,{_favicon_b64}" alt="ReviCX" style="max-height:95px; margin-bottom:8px;">
