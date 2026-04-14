@@ -5,3 +5,4 @@ plotly>=5.18
 faker>=22.0
 pyyaml>=6.0
 requests>=2.31
+psycopg2-binary>=2.9
