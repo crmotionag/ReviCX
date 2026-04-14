@@ -363,6 +363,9 @@ def get_engine():
     Exemplo em .streamlit/secrets.toml (usar Supabase, Neon ou similar):
         USERS_DATABASE_URL = "postgresql://user:pass@host:5432/dbname"
     """
+    import sys
+    from urllib.parse import urlparse as _up
+
     _url = None
     try:
         _url = st.secrets.get("USERS_DATABASE_URL")
@@ -375,57 +378,85 @@ def get_engine():
         _url = "postgresql://" + _url[len("postgres://"):]
 
     _is_sqlite = isinstance(_url, str) and "sqlite" in _url
+
+    # URL segura para logs (sem senha)
+    try:
+        _p = _up(_url)
+        _safe_url = f"{_p.scheme}://*****@{_p.hostname}:{_p.port}{_p.path}"
+    except Exception:
+        _safe_url = "(URL invalida)"
+
     _kwargs = {}
     if _is_sqlite:
         _kwargs["connect_args"] = {"check_same_thread": False}
         _kwargs["poolclass"] = NullPool
     else:
-        # PostgreSQL gerenciado (Supabase, Neon, etc.) exige SSL
-        if isinstance(_url, str) and "sslmode" not in _url:
-            _kwargs["connect_args"] = {"sslmode": "require"}
+        # PostgreSQL gerenciado: timeout + SSL
+        _ca: dict = {"connect_timeout": 15}
+        if "sslmode" not in _url:
+            _ca["sslmode"] = "require"
+        _kwargs["connect_args"] = _ca
 
     engine = create_engine(_url, **_kwargs)
 
-    with engine.begin() as conn:
-        if _is_sqlite:
-            conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS app_users (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL,
-                    email TEXT NOT NULL UNIQUE,
-                    password_hash TEXT NOT NULL,
-                    area TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    is_active BOOLEAN DEFAULT 1,
-                    is_admin BOOLEAN DEFAULT 0,
-                    must_change_password BOOLEAN DEFAULT 0,
-                    modules TEXT DEFAULT 'all',
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    last_login DATETIME
-                )
-            """))
-            existing = {row[1] for row in conn.execute(text("PRAGMA table_info(app_users)")).fetchall()}
-            if "must_change_password" not in existing:
-                conn.execute(text("ALTER TABLE app_users ADD COLUMN must_change_password BOOLEAN DEFAULT 0"))
-            if "modules" not in existing:
-                conn.execute(text("ALTER TABLE app_users ADD COLUMN modules TEXT DEFAULT 'all'"))
-        else:
-            conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS app_users (
-                    id SERIAL PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    email TEXT NOT NULL UNIQUE,
-                    password_hash TEXT NOT NULL,
-                    area TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    is_active BOOLEAN DEFAULT TRUE,
-                    is_admin BOOLEAN DEFAULT FALSE,
-                    must_change_password BOOLEAN DEFAULT FALSE,
-                    modules TEXT DEFAULT 'all',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    last_login TIMESTAMP
-                )
-            """))
+    # Retry para bancos serverless (ex: Neon dorme apos inatividade e a 1a conexao pode falhar)
+    _last_exc: Exception | None = None
+    for _attempt in range(3):
+        try:
+            with engine.begin() as conn:
+                if _is_sqlite:
+                    conn.execute(text("""
+                        CREATE TABLE IF NOT EXISTS app_users (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            name TEXT NOT NULL,
+                            email TEXT NOT NULL UNIQUE,
+                            password_hash TEXT NOT NULL,
+                            area TEXT NOT NULL,
+                            role TEXT NOT NULL,
+                            is_active BOOLEAN DEFAULT 1,
+                            is_admin BOOLEAN DEFAULT 0,
+                            must_change_password BOOLEAN DEFAULT 0,
+                            modules TEXT DEFAULT 'all',
+                            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            last_login DATETIME
+                        )
+                    """))
+                    existing = {row[1] for row in conn.execute(text("PRAGMA table_info(app_users)")).fetchall()}
+                    if "must_change_password" not in existing:
+                        conn.execute(text("ALTER TABLE app_users ADD COLUMN must_change_password BOOLEAN DEFAULT 0"))
+                    if "modules" not in existing:
+                        conn.execute(text("ALTER TABLE app_users ADD COLUMN modules TEXT DEFAULT 'all'"))
+                else:
+                    conn.execute(text("""
+                        CREATE TABLE IF NOT EXISTS app_users (
+                            id SERIAL PRIMARY KEY,
+                            name TEXT NOT NULL,
+                            email TEXT NOT NULL UNIQUE,
+                            password_hash TEXT NOT NULL,
+                            area TEXT NOT NULL,
+                            role TEXT NOT NULL,
+                            is_active BOOLEAN DEFAULT TRUE,
+                            is_admin BOOLEAN DEFAULT FALSE,
+                            must_change_password BOOLEAN DEFAULT FALSE,
+                            modules TEXT DEFAULT 'all',
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            last_login TIMESTAMP
+                        )
+                    """))
+            break  # conexao ok
+        except Exception as _e:
+            _last_exc = _e
+            print(f"[get_engine] tentativa {_attempt + 1}/3 falhou: {type(_e).__name__}: {_e}", file=sys.stderr)
+            if _attempt < 2:
+                import time as _t
+                _t.sleep(4)
+    else:
+        # Todas as 3 tentativas falharam
+        raise RuntimeError(
+            f"Falha ao conectar ao banco de dados apos 3 tentativas.\n"
+            f"Host: {_safe_url}\n"
+            f"Erro: {type(_last_exc).__name__}: {_last_exc}"
+        ) from _last_exc
 
     # Auto-bootstrap: se nao houver nenhum admin, cria o padrao automaticamente
     # (necessario em banco externo novo ou apos reset do SQLite)
@@ -524,7 +555,14 @@ def login_page():
             submitted = st.form_submit_button("Entrar", use_container_width=True, type="primary")
 
             if submitted:
-                user = authenticate(email, password)
+                try:
+                    user = authenticate(email, password)
+                except RuntimeError as _db_err:
+                    st.error(f"Erro de conexao com o banco de dados:\n\n{_db_err}")
+                    st.stop()
+                except Exception as _db_err:
+                    st.error(f"Erro inesperado ({type(_db_err).__name__}): {_db_err}")
+                    st.stop()
                 if user:
                     st.session_state.authenticated = True
                     st.session_state.user = user
