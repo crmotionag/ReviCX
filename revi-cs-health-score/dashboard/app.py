@@ -370,11 +370,19 @@ def get_engine():
         pass
     _url = _url or os.environ.get("USERS_DATABASE_URL") or f"sqlite:///{DB_PATH}"
 
-    _is_sqlite = "sqlite" in _url
+    # SQLAlchemy 2.0 nao aceita "postgres://"; converte para "postgresql://"
+    if isinstance(_url, str) and _url.startswith("postgres://"):
+        _url = "postgresql://" + _url[len("postgres://"):]
+
+    _is_sqlite = isinstance(_url, str) and "sqlite" in _url
     _kwargs = {}
     if _is_sqlite:
         _kwargs["connect_args"] = {"check_same_thread": False}
         _kwargs["poolclass"] = NullPool
+    else:
+        # PostgreSQL gerenciado (Supabase, Neon, etc.) exige SSL
+        if isinstance(_url, str) and "sslmode" not in _url:
+            _kwargs["connect_args"] = {"sslmode": "require"}
 
     engine = create_engine(_url, **_kwargs)
 
