@@ -8,6 +8,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from pathlib import Path
 from sqlalchemy import create_engine, text
+from sqlalchemy.pool import NullPool
 from datetime import datetime
 import hashlib
 import os
@@ -351,15 +352,94 @@ MODULES = [
 ]
 
 
+@st.cache_resource
 def get_engine():
-    engine = create_engine(f"sqlite:///{DB_PATH}")
-    # Migrate: add new columns if they don't exist yet
+    """
+    Retorna o engine SQLAlchemy para app_users, cacheado entre reruns.
+
+    Para persistencia no Streamlit Cloud, defina USERS_DATABASE_URL nos
+    Streamlit Secrets. Sem isso, os usuarios sao perdidos a cada restart.
+
+    Exemplo em .streamlit/secrets.toml (usar Supabase, Neon ou similar):
+        USERS_DATABASE_URL = "postgresql://user:pass@host:5432/dbname"
+    """
+    _url = None
+    try:
+        _url = st.secrets.get("USERS_DATABASE_URL")
+    except Exception:
+        pass
+    _url = _url or os.environ.get("USERS_DATABASE_URL") or f"sqlite:///{DB_PATH}"
+
+    _is_sqlite = "sqlite" in _url
+    _kwargs = {}
+    if _is_sqlite:
+        _kwargs["connect_args"] = {"check_same_thread": False}
+        _kwargs["poolclass"] = NullPool
+
+    engine = create_engine(_url, **_kwargs)
+
     with engine.begin() as conn:
-        existing = {row[1] for row in conn.execute(text("PRAGMA table_info(app_users)")).fetchall()}
-        if "must_change_password" not in existing:
-            conn.execute(text("ALTER TABLE app_users ADD COLUMN must_change_password BOOLEAN DEFAULT 0"))
-        if "modules" not in existing:
-            conn.execute(text("ALTER TABLE app_users ADD COLUMN modules TEXT DEFAULT 'all'"))
+        if _is_sqlite:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS app_users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    email TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    area TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    is_active BOOLEAN DEFAULT 1,
+                    is_admin BOOLEAN DEFAULT 0,
+                    must_change_password BOOLEAN DEFAULT 0,
+                    modules TEXT DEFAULT 'all',
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    last_login DATETIME
+                )
+            """))
+            existing = {row[1] for row in conn.execute(text("PRAGMA table_info(app_users)")).fetchall()}
+            if "must_change_password" not in existing:
+                conn.execute(text("ALTER TABLE app_users ADD COLUMN must_change_password BOOLEAN DEFAULT 0"))
+            if "modules" not in existing:
+                conn.execute(text("ALTER TABLE app_users ADD COLUMN modules TEXT DEFAULT 'all'"))
+        else:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS app_users (
+                    id SERIAL PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    email TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    area TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    is_admin BOOLEAN DEFAULT FALSE,
+                    must_change_password BOOLEAN DEFAULT FALSE,
+                    modules TEXT DEFAULT 'all',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_login TIMESTAMP
+                )
+            """))
+
+    # Auto-bootstrap: se nao houver nenhum admin, cria o padrao automaticamente
+    # (necessario em banco externo novo ou apos reset do SQLite)
+    with engine.connect() as conn:
+        _admin_count = conn.execute(
+            text("SELECT COUNT(*) FROM app_users WHERE is_admin = 1")
+        ).scalar()
+    if _admin_count == 0:
+        import hashlib as _hl
+        _default_pw = _hl.sha256(b"revi2026").hexdigest()
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("""
+                    INSERT INTO app_users
+                        (name, email, password_hash, area, role, is_active, is_admin, must_change_password)
+                    VALUES
+                        ('Admin', 'admin@revi.com', :pwd,
+                         'Customer Success', 'Gerente', 1, 1, 1)
+                """), {"pwd": _default_pw})
+        except Exception:
+            pass  # Admin ja existe (UNIQUE constraint)
+
     return engine
 
 
