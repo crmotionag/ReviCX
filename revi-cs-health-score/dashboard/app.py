@@ -394,8 +394,8 @@ def login_page():
                     padding:32px 40px 24px 40px; border-radius:16px 16px 0 0;
                     text-align:center; box-shadow:0 4px 16px rgba(26,58,107,0.2);">
             <img src="data:image/x-icon;base64,{_favicon_b64}" alt="ReviCX" style="max-height:95px; margin-bottom:8px;">
-            <p style="color:rgba(255,255,255,0.75); font-size:0.88rem; margin:0;">
-                Health Score Dashboard
+            <p style="color:#ffffff; font-size:0.88rem; margin:0;">
+                Ferramenta de gestão de clientes Revi
             </p>
         </div>
         """, unsafe_allow_html=True)
