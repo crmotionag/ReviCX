@@ -377,8 +377,8 @@ def init_auth():
 def login_page():
     """Tela de login com KV ReviCX."""
     import base64 as _b64
-    _logo_login = Path(__file__).parent / "assets" / "revi-logo-white.png"
-    _logo_b64 = _b64.b64encode(_logo_login.read_bytes()).decode()
+    _favicon_login = Path(__file__).parent / "assets" / "favicon.ico"
+    _favicon_b64 = _b64.b64encode(_favicon_login.read_bytes()).decode()
 
     if "login_error" not in st.session_state:
         st.session_state.login_error = False
@@ -393,7 +393,7 @@ def login_page():
         <div style="background:linear-gradient(135deg,{BLUE_DARK},{BLUE_PRIMARY});
                     padding:32px 40px 24px 40px; border-radius:16px 16px 0 0;
                     text-align:center; box-shadow:0 4px 16px rgba(26,58,107,0.2);">
-            <img src="data:image/png;base64,{_logo_b64}" alt="ReviCX" style="max-height:56px; margin-bottom:8px;">
+            <img src="data:image/x-icon;base64,{_favicon_b64}" alt="ReviCX" style="max-height:95px; margin-bottom:8px;">
             <p style="color:rgba(255,255,255,0.75); font-size:0.88rem; margin:0;">
                 Health Score Dashboard
             </p>
