@@ -462,7 +462,7 @@ def get_engine():
     # (necessario em banco externo novo ou apos reset do SQLite)
     with engine.connect() as conn:
         _admin_count = conn.execute(
-            text("SELECT COUNT(*) FROM app_users WHERE is_admin = 1")
+            text("SELECT COUNT(*) FROM app_users WHERE is_admin = TRUE")
         ).scalar()
     if _admin_count == 0:
         import hashlib as _hl
@@ -474,7 +474,7 @@ def get_engine():
                         (name, email, password_hash, area, role, is_active, is_admin, must_change_password)
                     VALUES
                         ('Admin', 'admin@revi.com', :pwd,
-                         'Customer Success', 'Gerente', 1, 1, 1)
+                         'Customer Success', 'Gerente', TRUE, TRUE, TRUE)
                 """), {"pwd": _default_pw})
         except Exception:
             pass  # Admin ja existe (UNIQUE constraint)
@@ -507,7 +507,7 @@ def authenticate(email, password):
     engine = get_engine()
     with engine.connect() as conn:
         row = conn.execute(
-            text("SELECT * FROM app_users WHERE email = :e AND is_active = 1"),
+            text("SELECT * FROM app_users WHERE email = :e AND is_active = TRUE"),
             {"e": email.strip().lower()},
         ).mappings().first()
     if row and row["password_hash"] == hash_pw(password):
@@ -631,14 +631,14 @@ def admin_page():
                     with engine.begin() as conn:
                         conn.execute(text("""
                             INSERT INTO app_users (name, email, password_hash, area, role, is_active, is_admin, must_change_password, modules)
-                            VALUES (:name, :email, :pwd, :area, :role, 1, :admin, 1, :modules)
+                            VALUES (:name, :email, :pwd, :area, :role, TRUE, :admin, TRUE, :modules)
                         """), {
                             "name": new_name.strip(),
                             "email": new_email.strip().lower(),
                             "pwd": hash_pw(temp_pw),
                             "area": new_area,
                             "role": new_role,
-                            "admin": 1 if new_admin else 0,
+                            "admin": True if new_admin else False,
                             "modules": modules_val,
                         })
                     st.session_state.new_user_credentials = {
@@ -733,13 +733,13 @@ def admin_page():
             if sel_user["is_active"]:
                 if st.button("Desativar", key=f"deact_{sel_user['id']}", use_container_width=True):
                     with engine.begin() as conn:
-                        conn.execute(text("UPDATE app_users SET is_active = 0 WHERE id = :uid"), {"uid": int(sel_user["id"])})
+                        conn.execute(text("UPDATE app_users SET is_active = FALSE WHERE id = :uid"), {"uid": int(sel_user["id"])})
                     st.success(f"{sel_user['name']} desativado.")
                     st.rerun()
             else:
                 if st.button("Reativar", key=f"react_{sel_user['id']}", use_container_width=True, type="primary"):
                     with engine.begin() as conn:
-                        conn.execute(text("UPDATE app_users SET is_active = 1 WHERE id = :uid"), {"uid": int(sel_user["id"])})
+                        conn.execute(text("UPDATE app_users SET is_active = TRUE WHERE id = :uid"), {"uid": int(sel_user["id"])})
                     st.success(f"{sel_user['name']} reativado.")
                     st.rerun()
 
@@ -747,13 +747,13 @@ def admin_page():
             if not sel_user["is_admin"]:
                 if st.button("Tornar Admin", key=f"admin_{sel_user['id']}", use_container_width=True):
                     with engine.begin() as conn:
-                        conn.execute(text("UPDATE app_users SET is_admin = 1 WHERE id = :uid"), {"uid": int(sel_user["id"])})
+                        conn.execute(text("UPDATE app_users SET is_admin = TRUE WHERE id = :uid"), {"uid": int(sel_user["id"])})
                     st.success(f"{sel_user['name']} agora e admin.")
                     st.rerun()
             else:
                 if st.button("Remover Admin", key=f"rmadmin_{sel_user['id']}", use_container_width=True):
                     with engine.begin() as conn:
-                        conn.execute(text("UPDATE app_users SET is_admin = 0 WHERE id = :uid"), {"uid": int(sel_user["id"])})
+                        conn.execute(text("UPDATE app_users SET is_admin = FALSE WHERE id = :uid"), {"uid": int(sel_user["id"])})
                     st.success(f"{sel_user['name']} nao e mais admin.")
                     st.rerun()
 
@@ -762,7 +762,7 @@ def admin_page():
                 new_pw = gen_temp_password()
                 with engine.begin() as conn:
                     conn.execute(
-                        text("UPDATE app_users SET password_hash = :pwd, must_change_password = 1 WHERE id = :uid"),
+                        text("UPDATE app_users SET password_hash = :pwd, must_change_password = TRUE WHERE id = :uid"),
                         {"pwd": hash_pw(new_pw), "uid": int(sel_user["id"])},
                     )
                 st.success(f"Senha de {sel_user['name']} resetada para: **{new_pw}** (usuario devera trocar no proximo login)")
@@ -868,7 +868,7 @@ def change_password_page():
                     uid = st.session_state.user["id"]
                     with engine.begin() as conn:
                         conn.execute(
-                            text("UPDATE app_users SET password_hash = :pwd, must_change_password = 0 WHERE id = :uid"),
+                            text("UPDATE app_users SET password_hash = :pwd, must_change_password = FALSE WHERE id = :uid"),
                             {"pwd": hash_pw(new_pw), "uid": uid},
                         )
                     st.session_state.must_change_pw = False
