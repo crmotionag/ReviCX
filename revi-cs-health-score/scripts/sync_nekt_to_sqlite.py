@@ -40,6 +40,13 @@ def load_alerts() -> pd.DataFrame:
     return pd.concat([p1, p2], ignore_index=True)
 
 
+def load_health() -> pd.DataFrame:
+    p1 = read_export("fct_health_score_p1")
+    p2 = read_export("fct_health_score_p2")
+    p3 = read_export("fct_health_score_p3")
+    return pd.concat([p1, p2, p3], ignore_index=True)
+
+
 def reshape_coverage(cov_raw: pd.DataFrame, clients: pd.DataFrame) -> pd.DataFrame:
     """Granular (csm, month, slug) → per (csm, year_month) with has_cs splits."""
     clients_slim = clients[["csm_owner", "company_name", "has_cs"]].copy()
@@ -114,9 +121,11 @@ def build_clients(dim: pd.DataFrame, upsell: pd.DataFrame) -> pd.DataFrame:
 def build_health(health: pd.DataFrame) -> pd.DataFrame:
     h = health.copy()
     int_cols = [
+        "period_days",
         "score_recency", "score_roi", "score_automations", "score_integrations",
         "score_chat", "score_volume", "bonus_cashback",
-        "days_since_last_campaign", "active_automations", "integration_automations",
+        "days_since_last_campaign", "campaigns_in_period",
+        "active_automations", "integration_automations",
         "messages_sent_current", "messages_sent_previous", "total_score",
     ]
     float_cols = ["campaign_roi", "messages_mom_change", "plan_usage_pct"]
@@ -210,7 +219,7 @@ def build_campaign_channels(upsell: pd.DataFrame) -> pd.DataFrame:
 def main():
     print(f"-> reading exports from {EXPORTS}")
     dim = read_export("dim_clients")
-    health = read_export("fct_health_score")
+    health = load_health()
     alerts = load_alerts()
     csm_wk = read_export("fct_csm_activity_weekly")
     cov_raw = read_export("fct_coverage_monthly")
@@ -236,9 +245,38 @@ def main():
 
     engine = create_engine(f"sqlite:///{DB}")
     with engine.begin() as conn:
-        # Truncate + refill dim/fct tables
+        # fct_health_score schema changed (added period_days, campaigns_in_period) — recreate.
+        conn.execute(text("DROP TABLE IF EXISTS fct_health_score"))
+        conn.execute(text("""
+            CREATE TABLE fct_health_score (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id TEXT NOT NULL,
+                calculated_at DATE NOT NULL,
+                period_days INTEGER NOT NULL DEFAULT 30,
+                score_recency INTEGER DEFAULT 0,
+                score_roi INTEGER DEFAULT 0,
+                score_automations INTEGER DEFAULT 0,
+                score_integrations INTEGER DEFAULT 0,
+                score_chat INTEGER DEFAULT 0,
+                score_volume INTEGER DEFAULT 0,
+                bonus_cashback INTEGER DEFAULT 0,
+                days_since_last_campaign INTEGER,
+                campaign_roi REAL,
+                campaigns_in_period INTEGER DEFAULT 0,
+                active_automations INTEGER,
+                integration_automations INTEGER,
+                chat_usage_level TEXT,
+                messages_sent_current INTEGER,
+                messages_sent_previous INTEGER,
+                messages_mom_change REAL,
+                plan_usage_pct REAL,
+                total_score INTEGER NOT NULL,
+                health_status TEXT NOT NULL,
+                UNIQUE(client_id, calculated_at, period_days)
+            )
+        """))
         for tbl in [
-            "dim_clients", "fct_health_score", "fct_alerts",
+            "dim_clients", "fct_alerts",
             "fct_csm_activity_weekly", "fct_coverage_monthly",
             "fct_revenue_retention_monthly",
         ]:

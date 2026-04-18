@@ -813,17 +813,22 @@ def admin_page():
 # Data loading
 # ---------------------------------------------------------------------------
 @st.cache_data(ttl=300)
-def load_data():
+def load_data(period_days: int = 30):
     if USE_NEKT:
         return load_data_from_nekt()
-    return load_data_from_sqlite()
+    return load_data_from_sqlite(period_days)
 
 
-def load_data_from_sqlite():
+def load_data_from_sqlite(period_days: int = 30):
     db_path = Path(__file__).parent.parent / "data" / "revi_cs.db"
     engine = create_engine(f"sqlite:///{db_path}")
     clients = pd.read_sql("SELECT * FROM dim_clients", engine)
-    health = pd.read_sql("SELECT * FROM fct_health_score", engine)
+    # fct_health_score has one row per (client, period_days) — pick the selected window.
+    health = pd.read_sql(
+        "SELECT * FROM fct_health_score WHERE period_days = ?",
+        engine,
+        params=(int(period_days),),
+    )
     alerts = pd.read_sql("SELECT * FROM fct_alerts", engine)
     csm_activity = pd.read_sql("SELECT * FROM fct_csm_activity_weekly", engine)
     coverage = pd.read_sql("SELECT * FROM fct_coverage_monthly", engine)
@@ -1017,7 +1022,9 @@ if st.session_state.get("must_change_pw"):
     st.stop()
 
 # --- Usuario autenticado daqui pra baixo ---
-clients, health, alerts, csm_activity, coverage, revenue, nps, campaign_channels = load_data()
+# Janela de analise (ROI e score_roi). Definida no sidebar mais abaixo via session_state.
+period_days = st.session_state.get("period_days", 30)
+clients, health, alerts, csm_activity, coverage, revenue, nps, campaign_channels = load_data(period_days)
 
 latest_health = (
     health.sort_values("calculated_at")
@@ -1109,6 +1116,16 @@ with st.sidebar:
         menu_items.append("Admin")
 
     page = st.radio("Menu", menu_items, label_visibility="collapsed")
+
+    st.markdown("---")
+    st.selectbox(
+        "Janela de analise (ROI)",
+        options=[7, 30, 60, 90],
+        index=1,
+        key="period_days",
+        format_func=lambda d: f"Ultimos {d} dias",
+        help="Janela para o calculo de ROI (SUM receita / SUM custo) das campanhas.",
+    )
 
     st.markdown("---")
     if st.button("Sair", use_container_width=True):

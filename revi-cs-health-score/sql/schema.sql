@@ -134,6 +134,7 @@ CREATE TABLE IF NOT EXISTS fct_health_score (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     client_id TEXT NOT NULL,
     calculated_at DATE NOT NULL,
+    period_days INTEGER NOT NULL DEFAULT 30,
     score_recency INTEGER DEFAULT 0,
     score_roi INTEGER DEFAULT 0,
     score_automations INTEGER DEFAULT 0,
@@ -143,6 +144,7 @@ CREATE TABLE IF NOT EXISTS fct_health_score (
     bonus_cashback INTEGER DEFAULT 0,
     days_since_last_campaign INTEGER,
     campaign_roi REAL,
+    campaigns_in_period INTEGER DEFAULT 0,
     active_automations INTEGER,
     integration_automations INTEGER,
     chat_usage_level TEXT,
@@ -152,7 +154,7 @@ CREATE TABLE IF NOT EXISTS fct_health_score (
     plan_usage_pct REAL,
     total_score INTEGER NOT NULL,
     health_status TEXT NOT NULL,
-    UNIQUE(client_id, calculated_at)
+    UNIQUE(client_id, calculated_at, period_days)
 );
 
 -- Fato: Alertas gerados
