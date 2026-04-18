@@ -1195,8 +1195,8 @@ if page == "Visao Geral":
     avg_score = _ch["total_score"].mean()
     rev_sorted = revenue.sort_values("year_month")
     latest_rev = rev_sorted.iloc[-1] if len(rev_sorted) else None
-    grr_val = latest_rev["grr"] * 100 if latest_rev is not None else 0
-    nrr_val = latest_rev["nrr"] * 100 if latest_rev is not None else 0
+    grr_val = latest_rev["grr"] if latest_rev is not None else 0
+    nrr_val = latest_rev["nrr"] if latest_rev is not None else 0
 
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -1689,8 +1689,8 @@ elif page == "Receita (GRR/NRR)":
         st.warning("Sem dados de receita.")
     else:
         latest = rev.iloc[-1]
-        grr_current = latest["grr"] * 100
-        nrr_current = latest["nrr"] * 100
+        grr_current = latest["grr"]
+        nrr_current = latest["nrr"]
         TARGET_GRR = 87
         TARGET_NRR = 105
 
@@ -1711,12 +1711,12 @@ elif page == "Receita (GRR/NRR)":
         rev_6 = rev.tail(6)
         fig_rev = go.Figure()
         fig_rev.add_trace(go.Scatter(
-            x=rev_6["year_month"], y=rev_6["grr"] * 100,
+            x=rev_6["year_month"], y=rev_6["grr"],
             mode="lines+markers", name="GRR",
             line=dict(color=GREEN, width=3), marker=dict(size=8),
         ))
         fig_rev.add_trace(go.Scatter(
-            x=rev_6["year_month"], y=rev_6["nrr"] * 100,
+            x=rev_6["year_month"], y=rev_6["nrr"],
             mode="lines+markers", name="NRR",
             line=dict(color=BLUE_PRIMARY, width=3), marker=dict(size=8),
         ))
