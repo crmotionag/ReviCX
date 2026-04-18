@@ -88,10 +88,11 @@ LEFT JOIN owners hs_owner  ON hs_owner.owner_id = hc.hubspot_owner_id;
 
 
 -- -----------------------------------------------------------------------------
--- 2. fct_health_score — 6 scores + cashback bonus per client
+-- 2. fct_health_score — 6 scores per client (v1.1: ROI removido, integracoes
+--    recalibradas, criterio de cobertura da base adicionado, categoria 'inactive')
 --    Sources: dim_clients, whatsapp_campaign_results, automation_execution_summary,
 --             flow_execution_summary, app_postgres_public_users (AI flag),
---             cashback_configs, companies_activity_summary (messages).
+--             companies_activity_summary (messages, integrations, coverage).
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE VIEW nekt_service.fct_health_score AS
 WITH cas AS (
@@ -100,6 +101,7 @@ WITH cas AS (
         total_active_automations, total_active_flows, active_integrations,
         total_messages_this_month, total_messages_prev_month,
         whatsapp_marketing_package_limit,
+        total_impacted_customers_this_month, total_customers,
         last_campaign_at, first_campaign_at,
         ROW_NUMBER() OVER (PARTITION BY id ORDER BY created_at DESC) AS rn
     FROM nekt_service.companies_activity_summary
@@ -163,6 +165,7 @@ assembled AS (
         COALESCE(cas.total_messages_this_month, 0) AS messages_sent_current,
         COALESCE(cas.total_messages_prev_month, 0) AS messages_sent_previous,
         COALESCE(cas.whatsapp_marketing_package_limit, 0) AS plan_limit_current,
+        cardinality(COALESCE(cas.active_integrations, ARRAY[])) AS active_integrations_count,
         CASE
             WHEN COALESCE(cas.total_messages_prev_month, 0) > 0
             THEN ROUND((COALESCE(cas.total_messages_this_month, 0) - cas.total_messages_prev_month) * 100.0 / cas.total_messages_prev_month, 2)
@@ -171,6 +174,10 @@ assembled AS (
             WHEN COALESCE(cas.whatsapp_marketing_package_limit, 0) > 0
             THEN ROUND(COALESCE(cas.total_messages_this_month, 0) * 100.0 / cas.whatsapp_marketing_package_limit, 2)
         END AS plan_usage_pct,
+        CASE
+            WHEN COALESCE(cas.total_customers, 0) > 0
+            THEN ROUND(COALESCE(cas.total_impacted_customers_this_month, 0) * 100.0 / cas.total_customers, 2)
+        END AS coverage_pct,
         CASE WHEN cb.company_id IS NOT NULL THEN 1 ELSE 0 END AS cashback_enabled
     FROM nekt_service.dim_clients dc
     LEFT JOIN cas       ON cas.id = dc.client_id AND cas.rn = 1
@@ -184,38 +191,40 @@ scored AS (
     SELECT *,
         CASE WHEN days_since_last_campaign <= 7  THEN 5
              WHEN days_since_last_campaign <= 20 THEN 3 ELSE 0 END AS score_recency,
-        CASE WHEN campaign_roi >= 10 THEN 5
-             WHEN campaign_roi >= 1  THEN 3 ELSE 0 END AS score_roi,
         CASE WHEN active_automations >= 3 THEN 5
              WHEN active_automations >= 1 THEN 3 ELSE 0 END AS score_automations,
-        CASE WHEN integration_automations >= 4 THEN 5
-             WHEN integration_automations  = 3 THEN 4
-             WHEN integration_automations >= 1 THEN 2 ELSE 0 END AS score_integrations,
+        -- Integracoes recalibradas: base real mostra max 2 por cliente (nenhum tem 4+)
+        CASE WHEN active_integrations_count >= 2 THEN 5
+             WHEN active_integrations_count  = 1 THEN 3 ELSE 0 END AS score_integrations,
         CASE WHEN chat_usage_level = 'advanced'  THEN 5
              WHEN chat_usage_level = 'essential' THEN 4 ELSE 0 END AS score_chat,
         CASE WHEN messages_mom_change > 0 OR plan_usage_pct >= 80 THEN 5
              WHEN messages_mom_change >= -10 THEN 3 ELSE 0 END AS score_volume,
-        CASE WHEN cashback_enabled = 1 THEN 2 ELSE 0 END AS bonus_cashback
+        -- Cobertura da base: % clientes impactados no mes
+        CASE WHEN coverage_pct >= 15 THEN 5
+             WHEN coverage_pct >= 5  THEN 3 ELSE 0 END AS score_coverage
     FROM assembled
 )
 SELECT
     client_id, company_name, csm_owner, mrr, days_to_renewal,
     CURRENT_DATE AS calculated_at,
-    score_recency, score_roi, score_automations, score_integrations,
-    score_chat, score_volume, bonus_cashback,
-    days_since_last_campaign, campaign_roi,
-    active_automations, integration_automations, active_flows,
+    score_recency, score_automations, score_integrations,
+    score_chat, score_volume, score_coverage,
+    days_since_last_campaign,
+    active_automations, active_integrations_count, active_flows,
     chat_usage_level, has_human_agent, has_chat_flow, has_ai_enabled,
     messages_sent_current, messages_sent_previous,
-    messages_mom_change, plan_usage_pct, cashback_enabled,
-    (score_recency + score_roi + score_automations + score_integrations
-     + score_chat + score_volume + bonus_cashback) AS total_score,
+    messages_mom_change, plan_usage_pct, coverage_pct,
+    (score_recency + score_automations + score_integrations
+     + score_chat + score_volume + score_coverage) AS total_score,
     CASE
-        WHEN (score_recency + score_roi + score_automations + score_integrations
-              + score_chat + score_volume + bonus_cashback) >= 26 THEN 'green'
-        WHEN (score_recency + score_roi + score_automations + score_integrations
-              + score_chat + score_volume + bonus_cashback) >= 16 THEN 'yellow'
-        ELSE 'red'
+        WHEN (score_recency + score_automations + score_integrations
+              + score_chat + score_volume + score_coverage) >= 19 THEN 'green'
+        WHEN (score_recency + score_automations + score_integrations
+              + score_chat + score_volume + score_coverage) >= 11 THEN 'yellow'
+        WHEN (score_recency + score_automations + score_integrations
+              + score_chat + score_volume + score_coverage) >= 4  THEN 'red'
+        ELSE 'inactive'
     END AS health_status
 FROM scored;
 
@@ -229,8 +238,8 @@ CREATE OR REPLACE VIEW nekt_service.fct_alerts AS
 WITH base AS (
     SELECT
         client_id, company_name, csm_owner, health_status, total_score,
-        days_since_last_campaign, campaign_roi, messages_mom_change,
-        plan_usage_pct, days_to_renewal
+        days_since_last_campaign, messages_mom_change,
+        plan_usage_pct, coverage_pct, days_to_renewal
     FROM nekt_service.fct_health_score
 )
 SELECT * FROM (
@@ -243,13 +252,6 @@ SELECT * FROM (
         CURRENT_DATE AS alert_date, FALSE AS resolved
     FROM base
     WHERE days_since_last_campaign >= 14 AND days_since_last_campaign < 9999
-
-    UNION ALL SELECT client_id, company_name, csm_owner,
-        'roi_below_1', 'ROI abaixo de 1x', 'warning',
-        'Agendar analise de campanha com cliente',
-        CAST(CAST(campaign_roi AS DECIMAL(10,2)) AS VARCHAR),
-        CURRENT_DATE, FALSE
-    FROM base WHERE campaign_roi < 1 AND campaign_roi > 0
 
     UNION ALL SELECT client_id, company_name, csm_owner,
         'renewal_90d', 'Renovacao em 90 dias', 'info',
@@ -271,6 +273,20 @@ SELECT * FROM (
         CAST(CAST(messages_mom_change AS DECIMAL(10,2)) AS VARCHAR),
         CURRENT_DATE, FALSE
     FROM base WHERE messages_mom_change <= -30
+
+    UNION ALL SELECT client_id, company_name, csm_owner,
+        'low_base_coverage', 'Cobertura da base abaixo de 5%', 'warning',
+        'Orientar cliente a ampliar uso de campanhas e automacoes',
+        CAST(CAST(COALESCE(coverage_pct, 0) AS DECIMAL(10,2)) AS VARCHAR),
+        CURRENT_DATE, FALSE
+    FROM base WHERE COALESCE(coverage_pct, 0) < 5 AND health_status NOT IN ('inactive')
+
+    UNION ALL SELECT client_id, company_name, csm_owner,
+        'inactive_client', 'Cliente sem atividade (Inativo)', 'critical',
+        'Acionar CSM para diagnostico — risco de churn silencioso',
+        CAST(days_to_renewal AS VARCHAR),
+        CURRENT_DATE, FALSE
+    FROM base WHERE health_status = 'inactive' AND days_to_renewal <= 60
 
     UNION ALL SELECT client_id, company_name, csm_owner,
         'upsell_opportunity', 'Oportunidade de upsell', 'info',

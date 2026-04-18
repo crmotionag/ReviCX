@@ -70,10 +70,11 @@ GREEN = "#22c55e"
 YELLOW = "#eab308"
 RED = "#ef4444"
 PURPLE = "#8B5CF6"
+GREY = "#94a3b8"
 
-STATUS_COLORS = {"green": GREEN, "yellow": YELLOW, "red": RED}
-STATUS_LABELS = {"green": "Campeao", "yellow": "Alerta", "red": "Em Risco"}
-STATUS_ICONS = {"green": "&#9679;", "yellow": "&#9679;", "red": "&#9679;"}
+STATUS_COLORS = {"green": GREEN, "yellow": YELLOW, "red": RED, "inactive": GREY}
+STATUS_LABELS = {"green": "Campeao", "yellow": "Alerta", "red": "Em Risco", "inactive": "Inativo"}
+STATUS_ICONS = {"green": "&#9679;", "yellow": "&#9679;", "red": "&#9679;", "inactive": "&#9679;"}
 
 # ---------------------------------------------------------------------------
 # Global CSS — ReviCX
@@ -1022,7 +1023,7 @@ if st.session_state.get("must_change_pw"):
     st.stop()
 
 # --- Usuario autenticado daqui pra baixo ---
-# Janela de analise (ROI e score_roi). Definida no sidebar mais abaixo via session_state.
+# Janela de analise de campanhas. Definida no sidebar via session_state.
 period_days = st.session_state.get("period_days", 30)
 clients, health, alerts, csm_activity, coverage, revenue, nps, campaign_channels = load_data(period_days)
 
@@ -1038,11 +1039,13 @@ client_health = clients.merge(latest_health, on="client_id", how="left")
 # ---------------------------------------------------------------------------
 # Helper: KPI card (icon + uppercase label + bold value)
 # ---------------------------------------------------------------------------
-def kpi(label, value, icon="&#128202;", color=BLUE_PRIMARY, sub=""):
+def kpi(label, value, icon="&#128202;", color=BLUE_PRIMARY, sub="", tooltip=""):
     bg_light = color + "18"
     sub_part = f'<span class="kpi-sub">{sub}</span>' if sub else ""
+    title_attr = f' title="{tooltip}"' if tooltip else ""
+    cursor = ' style="cursor:help;"' if tooltip else ""
     return (
-        f'<div class="kpi-card">'
+        f'<div class="kpi-card"{title_attr}{cursor}>'
         f'<div class="kpi-icon" style="background:{bg_light};color:{color};">{icon}</div>'
         f'<div class="kpi-content">'
         f'<p class="kpi-label">{label}</p>'
@@ -1175,19 +1178,35 @@ if page == "Visao Geral":
     green_n = len(_ch[_ch["health_status"] == "green"])
     yellow_n = len(_ch[_ch["health_status"] == "yellow"])
     red_n = len(_ch[_ch["health_status"] == "red"])
+    inactive_n = len(_ch[_ch["health_status"] == "inactive"])
     green_pct = f"{green_n/total*100:.0f}%" if total else "0%"
     yellow_pct = f"{yellow_n/total*100:.0f}%" if total else "0%"
     red_pct = f"{red_n/total*100:.0f}%" if total else "0%"
+    inactive_pct = f"{inactive_n/total*100:.0f}%" if total else "0%"
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
         st.markdown(kpi("TOTAL CLIENTES", total, "&#128101;", BLUE_PRIMARY), unsafe_allow_html=True)
     with c2:
-        st.markdown(kpi("CAMPEOES", green_n, "&#9989;", GREEN, green_pct), unsafe_allow_html=True)
+        st.markdown(kpi(
+            "CAMPEOES", green_n, "&#9989;", GREEN, green_pct,
+            tooltip="Score 19–30 pts. Power User: campanhas frequentes, automacoes ativas, boa cobertura da base. Prioridade para upsell e expansao.",
+        ), unsafe_allow_html=True)
     with c3:
-        st.markdown(kpi("EM ALERTA", yellow_n, "&#9888;", YELLOW, yellow_pct), unsafe_allow_html=True)
+        st.markdown(kpi(
+            "EM ALERTA", yellow_n, "&#9888;", YELLOW, yellow_pct,
+            tooltip="Score 11–18 pts. Usa a plataforma mas subutiliza ao menos um criterio. Acompanhamento preventivo — risco de churn se nao evoluir.",
+        ), unsafe_allow_html=True)
     with c4:
-        st.markdown(kpi("EM RISCO", red_n, "&#128680;", RED, red_pct), unsafe_allow_html=True)
+        st.markdown(kpi(
+            "EM RISCO", red_n, "&#128680;", RED, red_pct,
+            tooltip="Score 4–10 pts. Baixo uso ou campanhas inativas. Acao de resgate imediata — contato do CSM prioritario.",
+        ), unsafe_allow_html=True)
+    with c5:
+        st.markdown(kpi(
+            "INATIVOS", inactive_n, "&#9898;", GREY, inactive_pct,
+            tooltip="Score 0–3 pts. Sem atividade relevante na plataforma. Pode ser onboarding abandonado ou conta parada. Verificar status junto ao CS.",
+        ), unsafe_allow_html=True)
 
     st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 
@@ -1214,7 +1233,7 @@ if page == "Visao Geral":
     with col_left:
         st.subheader("Distribuicao por Status")
 
-        _btn_all, _btn_green, _btn_yellow, _btn_red = st.columns(4)
+        _btn_all, _btn_green, _btn_yellow, _btn_red, _btn_inactive = st.columns(5)
         with _btn_all:
             if st.button("Todos", use_container_width=True,
                          type="primary" if st.session_state.vg_status_filter is None else "secondary",
@@ -1239,12 +1258,18 @@ if page == "Visao Geral":
                          key="vg_btn_red"):
                 st.session_state.vg_status_filter = "red"
                 st.rerun()
+        with _btn_inactive:
+            if st.button("Inativo", use_container_width=True,
+                         type="primary" if st.session_state.vg_status_filter == "inactive" else "secondary",
+                         key="vg_btn_inactive"):
+                st.session_state.vg_status_filter = "inactive"
+                st.rerun()
 
         fig_donut = go.Figure(go.Pie(
-            labels=["Campeao", "Alerta", "Em Risco"],
-            values=[green_n, yellow_n, red_n],
+            labels=["Campeao", "Alerta", "Em Risco", "Inativo"],
+            values=[green_n, yellow_n, red_n, inactive_n],
             hole=0.6,
-            marker=dict(colors=[GREEN, YELLOW, RED]),
+            marker=dict(colors=[GREEN, YELLOW, RED, GREY]),
             textinfo="label+value+percent",
             textfont=dict(size=12),
         ))
@@ -1333,9 +1358,9 @@ elif page == "Carteira do CSM":
         st.markdown("### Filtros")
         csm_list = sorted(client_health["csm_owner"].dropna().unique().tolist())
         csm_filter = st.selectbox("CSM", ["Todos"] + csm_list)
-        status_filter = st.selectbox("Status", ["Todos", "Campeao", "Alerta", "Em Risco"])
+        status_filter = st.selectbox("Status", ["Todos", "Campeao", "Alerta", "Em Risco", "Inativo"])
 
-    status_map = {"Campeao": "green", "Alerta": "yellow", "Em Risco": "red"}
+    status_map = {"Campeao": "green", "Alerta": "yellow", "Em Risco": "red", "Inativo": "inactive"}
 
     df = client_health.copy()
     if csm_filter != "Todos":
@@ -1344,18 +1369,33 @@ elif page == "Carteira do CSM":
         df = df[df["health_status"] == status_map[status_filter]]
 
     # Summary cards
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
         st.markdown(kpi("CLIENTES", len(df), "&#128101;", BLUE_PRIMARY), unsafe_allow_html=True)
     with c2:
         g = len(df[df["health_status"] == "green"])
-        st.markdown(kpi("CAMPEOES", g, "&#9989;", GREEN), unsafe_allow_html=True)
+        st.markdown(kpi(
+            "CAMPEOES", g, "&#9989;", GREEN,
+            tooltip="Score 19–30 pts. Extrai o maximo da plataforma. Foco em expansao e indicacao.",
+        ), unsafe_allow_html=True)
     with c3:
         y = len(df[df["health_status"] == "yellow"])
-        st.markdown(kpi("ALERTA", y, "&#9888;", YELLOW), unsafe_allow_html=True)
+        st.markdown(kpi(
+            "ALERTA", y, "&#9888;", YELLOW,
+            tooltip="Score 11–18 pts. Usa mas subutiliza. Agendar consultoria para identificar gaps.",
+        ), unsafe_allow_html=True)
     with c4:
         r = len(df[df["health_status"] == "red"])
-        st.markdown(kpi("EM RISCO", r, "&#128680;", RED), unsafe_allow_html=True)
+        st.markdown(kpi(
+            "EM RISCO", r, "&#128680;", RED,
+            tooltip="Score 4–10 pts. Baixo engajamento. Acao imediata do CSM para resgatar o cliente.",
+        ), unsafe_allow_html=True)
+    with c5:
+        i = len(df[df["health_status"] == "inactive"])
+        st.markdown(kpi(
+            "INATIVOS", i, "&#9898;", GREY,
+            tooltip="Score 0–3 pts. Sem atividade. Verificar se e onboarding incompleto ou churn silencioso.",
+        ), unsafe_allow_html=True)
 
     st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
 
@@ -1386,12 +1426,47 @@ elif page == "Carteira do CSM":
     if len(filtered) > 0:
 
         score_criteria = {
-            "score_recency": ("Recencia de Campanha", 5),
-            "score_roi": ("ROI de Campanha", 5),
-            "score_automations": ("Automacoes Ativas", 5),
-            "score_integrations": ("Integracoes", 5),
-            "score_chat": ("Uso do Chat", 5),
-            "score_volume": ("Volume de Mensagens", 5),
+            "score_recency": (
+                "Recencia de Campanha", 5,
+                "Ha quantos dias foi a ultima campanha enviada.\n"
+                "≤7 dias → 5 pts  |  8–20 dias → 3 pts  |  >20 dias → 0 pts\n"
+                "Indica se o cliente esta ativo e usando a plataforma.",
+            ),
+            "score_automations": (
+                "Automacoes Ativas", 5,
+                "Numero de automacoes personalizadas ativas\n"
+                "(carrinho abandonado, pos-venda, reativacao, etc.).\n"
+                "3 ou mais → 5 pts  |  1–2 → 3 pts  |  nenhuma → 0 pts",
+            ),
+            "score_integrations": (
+                "Integracoes Conectadas", 5,
+                "Numero de integracoes de e-commerce/ERP ativas\n"
+                "(ex: Shopify, VTEX, Nuvem Shop, Bling).\n"
+                "2 ou mais → 5 pts  |  1 → 3 pts  |  nenhuma → 0 pts\n"
+                "Mais integracoes = maior lock-in e valor percebido.",
+            ),
+            "score_chat": (
+                "Uso do Atendimento", 5,
+                "Nivel de adocao do modulo de atendimento.\n"
+                "Avancado (humano + flow ou AI) → 5 pts\n"
+                "Essencial (apenas humano ou apenas flow) → 4 pts\n"
+                "Sem uso → 0 pts",
+            ),
+            "score_volume": (
+                "Volume de Mensagens", 5,
+                "Volume e tendencia de mensagens enviadas no mes.\n"
+                "Crescente ou ≥80% do plano contratado → 5 pts\n"
+                "Estavel (variacao entre -10% e +10%) → 3 pts\n"
+                "Em queda ou uso irrelevante → 0 pts",
+            ),
+            "score_coverage": (
+                "Cobertura da Base", 5,
+                "% da base de clientes cadastrada que recebeu\n"
+                "ao menos uma mensagem no mes atual.\n"
+                "≥15% da base impactada → 5 pts\n"
+                "5–14% → 3 pts  |  <5% → 0 pts\n"
+                "Mede o alcance real das acoes de marketing.",
+            ),
         }
 
         # Load historical scores for sparklines
@@ -1441,13 +1516,17 @@ elif page == "Carteira do CSM":
 
                 # --- Row 3: Breakdown dos 6 criterios ---
                 st.markdown("**Breakdown do Health Score**")
-                for col_key, (label, max_val) in score_criteria.items():
+                for col_key, (label, max_val, tooltip) in score_criteria.items():
                     val = row.get(col_key, 0) or 0
                     pct = val / max_val if max_val > 0 else 0
                     bar_color = GREEN if pct >= 0.8 else (YELLOW if pct >= 0.5 else RED)
                     c1, c2, c3 = st.columns([3, 5, 1])
                     with c1:
-                        st.markdown(f"<span style='font-size:0.85rem;color:{TEXT_MUTED};'>{label}</span>", unsafe_allow_html=True)
+                        st.markdown(
+                            f"<span title='{tooltip}' style='font-size:0.85rem;color:{TEXT_MUTED};cursor:help;'>"
+                            f"{label} <span style='font-size:0.7rem;'>&#8505;</span></span>",
+                            unsafe_allow_html=True,
+                        )
                     with c2:
                         st.progress(min(pct, 1.0))
                     with c3:
@@ -1460,32 +1539,73 @@ elif page == "Carteira do CSM":
                 m1, m2, m3, m4 = st.columns(4)
                 with m1:
                     days_camp = row.get("days_since_last_campaign", 0) or 0
-                    st.metric("Dias s/ Campanha", days_camp)
+                    st.metric(
+                        "Dias s/ Campanha", days_camp,
+                        help="Dias desde a ultima campanha enviada.\n"
+                             "Ativo: ≤7 dias | Moderado: 8–20 dias | Inativo: >20 dias.\n"
+                             "Acima de 14 dias gera alerta automatico para o CSM.",
+                    )
                 with m2:
-                    roi = row.get("campaign_roi", 0) or 0
-                    st.metric("ROI Campanha", f"{roi:.1f}x")
-                with m3:
                     auto = row.get("active_automations", 0) or 0
-                    integ = row.get("integration_automations", 0) or 0
-                    st.metric("Automacoes", f"{auto} std + {integ} integ")
-                with m4:
+                    integ = row.get("active_integrations_count", 0) or 0
+                    st.metric(
+                        "Automacoes / Integracoes", f"{auto} aut | {integ} int",
+                        help="Automacoes personalizadas ativas (carrinho abandonado, pos-venda, etc.)\n"
+                             "e integracoes de e-commerce/ERP conectadas (Shopify, VTEX, Bling, etc.).\n"
+                             "Score: automacoes 3+ → 5 pts | integracoes 2+ → 5 pts.",
+                    )
+                with m3:
                     usage = row.get("plan_usage_pct", 0) or 0
-                    st.metric("Uso do Plano", f"{usage:.0f}%")
+                    st.metric(
+                        "Uso do Plano", f"{usage:.0f}%",
+                        help="% das mensagens do pacote contratado utilizadas no mes atual.\n"
+                             "≥80% indica uso intenso — pode qualificar para upsell de plano.\n"
+                             "Abaixo de 20% com score baixo sugere cliente desengajado.",
+                    )
+                with m4:
+                    coverage = row.get("coverage_pct", 0) or 0
+                    st.metric(
+                        "Cobertura da Base", f"{coverage:.1f}%",
+                        help="% dos clientes cadastrados que receberam ao menos uma mensagem\n"
+                             "no mes atual (campanhas + automacoes).\n"
+                             "≥15% → 5 pts | 5–14% → 3 pts | <5% → 0 pts.\n"
+                             "Mede o alcance real das acoes de marketing do cliente.",
+                    )
 
                 m5, m6, m7, m8 = st.columns(4)
                 with m5:
                     chat_lvl = row.get("chat_usage_level", "none") or "none"
                     chat_display = {"advanced": "Avancado", "essential": "Essencial", "none": "Nao usa"}.get(chat_lvl, chat_lvl)
-                    st.metric("Chat", chat_display)
+                    st.metric(
+                        "Atendimento", chat_display,
+                        help="Nivel de uso do modulo de atendimento:\n"
+                             "Avancado = humano + flow de chatbot ou AI ativo (5 pts)\n"
+                             "Essencial = apenas humano OU apenas flow (4 pts)\n"
+                             "Nao usa = sem atendimento configurado (0 pts)",
+                    )
                 with m6:
                     msgs = row.get("messages_sent_current", 0) or 0
-                    st.metric("Msgs Mes Atual", f"{msgs:,}")
+                    st.metric(
+                        "Msgs Mes Atual", f"{msgs:,}",
+                        help="Total de mensagens enviadas no mes corrente,\n"
+                             "incluindo campanhas de marketing e automacoes.",
+                    )
                 with m7:
                     mom = row.get("messages_mom_change", 0) or 0
-                    st.metric("Variacao MoM", f"{mom:+.1f}%")
+                    st.metric(
+                        "Variacao MoM", f"{mom:+.1f}%",
+                        help="Variacao % de mensagens enviadas em relacao ao mes anterior.\n"
+                             "Positivo = crescimento | Negativo = queda.\n"
+                             "Queda acima de 30% gera alerta automatico.",
+                    )
                 with m8:
-                    cashback = "Ativo" if row.get("cashback_enabled") else "Inativo"
-                    st.metric("Cashback", cashback)
+                    flows = row.get("active_flows", 0) or 0
+                    st.metric(
+                        "Flows Ativos", flows,
+                        help="Numero de fluxos de chatbot ativos na conta.\n"
+                             "Flows ativos contribuem para o criterio de Atendimento\n"
+                             "e indicam sofisticacao no uso da plataforma.",
+                    )
 
                 # --- Row 5: Evolucao do score (historico) ---
                 client_hist = hist[hist["client_id"] == row["client_id"]].sort_values("calculated_at")
@@ -1501,10 +1621,11 @@ elif page == "Carteira do CSM":
                         fill="tozeroy",
                         fillcolor="rgba(37,99,235,0.06)",
                     ))
-                    # Faixas de classificacao
-                    fig_hist.add_hrect(y0=26, y1=30, fillcolor=GREEN, opacity=0.07, line_width=0, annotation_text="Campeao", annotation_position="top left")
-                    fig_hist.add_hrect(y0=16, y1=25, fillcolor=YELLOW, opacity=0.07, line_width=0, annotation_text="Alerta", annotation_position="top left")
-                    fig_hist.add_hrect(y0=0, y1=15, fillcolor=RED, opacity=0.07, line_width=0, annotation_text="Em Risco", annotation_position="top left")
+                    # Faixas de classificacao (v1.1: max 30 pts)
+                    fig_hist.add_hrect(y0=19, y1=30, fillcolor=GREEN, opacity=0.07, line_width=0, annotation_text="Campeao", annotation_position="top left")
+                    fig_hist.add_hrect(y0=11, y1=18, fillcolor=YELLOW, opacity=0.07, line_width=0, annotation_text="Alerta", annotation_position="top left")
+                    fig_hist.add_hrect(y0=4,  y1=10, fillcolor=RED,    opacity=0.07, line_width=0, annotation_text="Em Risco", annotation_position="top left")
+                    fig_hist.add_hrect(y0=0,  y1=3,  fillcolor=GREY,   opacity=0.07, line_width=0, annotation_text="Inativo", annotation_position="top left")
                     fig_hist.update_layout(**PLOTLY_LAYOUT, height=250, yaxis_title="Score", yaxis_range=[0, 32])
                     st.plotly_chart(fig_hist, use_container_width=True)
 
@@ -1930,9 +2051,9 @@ elif page == "Upsell":
         st.markdown("### Filtros")
         _up_csm_list = sorted(_up["csm_owner"].dropna().unique().tolist())
         _up_csm = st.selectbox("CSM", ["Todos"] + _up_csm_list, key="up_csm")
-        _up_status = st.selectbox("Status", ["Todos", "Campeao", "Alerta", "Em Risco"], key="up_status")
+        _up_status = st.selectbox("Status", ["Todos", "Campeao", "Alerta", "Em Risco", "Inativo"], key="up_status")
 
-    _status_map = {"Campeao": "green", "Alerta": "yellow", "Em Risco": "red"}
+    _status_map = {"Campeao": "green", "Alerta": "yellow", "Em Risco": "red", "Inativo": "inactive"}
     _up_filtered = _up.copy()
     if _up_csm != "Todos":
         _up_filtered = _up_filtered[_up_filtered["csm_owner"] == _up_csm]

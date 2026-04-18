@@ -5,13 +5,14 @@ Reads the latest (and previous) health score per client from fct_health_score,
 joins with dim_clients for renewal info, evaluates every alert rule defined in
 scoring_rules.yaml, and inserts new alerts into fct_alerts (skipping duplicates).
 
-Rules implemented:
-  score_dropped_to_red  – health_status == 'red' AND previous != 'red'  → critical
-  no_campaign_14d       – days_since_last_campaign >= 14                → warning
-  roi_dropped_below_1   – campaign_roi < 1 AND previous_roi >= 1        → warning
-  renewal_90d           – days_to_renewal <= 90                         → info
-  renewal_30d_red       – days_to_renewal <= 30 AND health_status=='red'→ critical
-  volume_drop_30pct     – messages_mom_change <= -30                    → warning
+Rules implemented (v1.1):
+  score_dropped_to_red  – health_status == 'red' AND previous != 'red'    → critical
+  no_campaign_14d       – days_since_last_campaign >= 14                  → warning
+  renewal_90d           – days_to_renewal <= 90                           → info
+  renewal_30d_red       – days_to_renewal <= 30 AND health_status=='red'  → critical
+  volume_drop_30pct     – messages_mom_change <= -30                      → warning
+  low_base_coverage     – coverage_pct < 5 AND health_status != 'inactive'→ warning
+  inactive_client       – health_status == 'inactive' AND days_to_renewal <= 60 → critical
   upsell_opportunity    – health_status=='green' AND plan_usage_pct >= 90 → info
 """
 
@@ -96,11 +97,10 @@ for _, row in df.iterrows():
     client_id       = row["client_id"]
     health_status   = row["health_status"]
     prev_status     = row.get("prev_health_status")          # NaN when no previous
-    campaign_roi    = row["campaign_roi"]
-    prev_roi        = row.get("prev_campaign_roi")
     days_campaign   = row["days_since_last_campaign"]
     mom_change      = row["messages_mom_change"]
     plan_usage      = row["plan_usage_pct"]
+    coverage        = row.get("coverage_pct")
     days_renewal    = row["days_to_renewal"]
 
     def _alert(rule_id):
@@ -122,15 +122,8 @@ for _, row in df.iterrows():
     if pd.notna(days_campaign) and days_campaign >= 14:
         records.append(_alert("no_campaign_14d"))
 
-    # roi_dropped_below_1
-    if (
-        pd.notna(campaign_roi) and campaign_roi < 1
-        and pd.notna(prev_roi) and prev_roi >= 1
-    ):
-        records.append(_alert("roi_dropped_below_1"))
-
     # renewal_90d
-    if pd.notna(days_renewal) and days_renewal <= 90:
+    if pd.notna(days_renewal) and 31 <= days_renewal <= 90:
         records.append(_alert("renewal_90d"))
 
     # renewal_30d_red
@@ -140,6 +133,14 @@ for _, row in df.iterrows():
     # volume_drop_30pct
     if pd.notna(mom_change) and mom_change <= -30:
         records.append(_alert("volume_drop_30pct"))
+
+    # low_base_coverage
+    if health_status != "inactive" and (pd.isna(coverage) or coverage < 5):
+        records.append(_alert("low_base_coverage"))
+
+    # inactive_client
+    if health_status == "inactive" and pd.notna(days_renewal) and days_renewal <= 60:
+        records.append(_alert("inactive_client"))
 
     # upsell_opportunity
     if health_status == "green" and pd.notna(plan_usage) and plan_usage >= 90:
