@@ -340,6 +340,8 @@ DB_PATH = Path(__file__).parent.parent / "data" / "revi_cs.db"
 AREAS = ["Customer Success", "CX", "Suporte", "Produto", "Comercial", "Marketing", "Diretoria"]
 ROLES = ["Gerente", "Supervisor", "Analista", "Assistente"]
 
+USE_NEKT = os.environ.get("USE_NEKT", "").strip().lower() in {"1", "true", "yes"}
+
 MODULES = [
     "Visao Geral",
     "Carteira do CSM",
@@ -348,8 +350,10 @@ MODULES = [
     "Alertas",
     "Performance CSM",
     "Receita (GRR/NRR)",
-    "NPS",
 ]
+# NPS module only appears on the SQLite mock (Nekt has no NPS source today).
+if not USE_NEKT:
+    MODULES.append("NPS")
 
 
 @st.cache_resource
@@ -810,6 +814,12 @@ def admin_page():
 # ---------------------------------------------------------------------------
 @st.cache_data(ttl=300)
 def load_data():
+    if USE_NEKT:
+        return load_data_from_nekt()
+    return load_data_from_sqlite()
+
+
+def load_data_from_sqlite():
     db_path = Path(__file__).parent.parent / "data" / "revi_cs.db"
     engine = create_engine(f"sqlite:///{db_path}")
     clients = pd.read_sql("SELECT * FROM dim_clients", engine)
@@ -823,7 +833,6 @@ def load_data():
     alerts["alert_date"] = pd.to_datetime(alerts["alert_date"])
     csm_activity["week_start"] = pd.to_datetime(csm_activity["week_start"])
     nps["response_date"] = pd.to_datetime(nps["response_date"])
-    # Canais usados por cliente (SMS / Email)
     campaign_channels = pd.read_sql("""
         SELECT revi_client_id,
                MAX(CASE WHEN campaign_type = 'sms'   THEN 1 ELSE 0 END) AS has_sms,
@@ -832,6 +841,119 @@ def load_data():
         GROUP BY revi_client_id
     """, engine)
     return clients, health, alerts, csm_activity, coverage, revenue, nps, campaign_channels
+
+
+def _nekt_engine():
+    """Athena SQLAlchemy engine. Requires AWS creds + ATHENA_S3_STAGING_DIR env vars."""
+    from urllib.parse import quote_plus
+    region  = os.environ.get("AWS_REGION", "us-east-1")
+    staging = os.environ["ATHENA_S3_STAGING_DIR"]
+    wg      = os.environ.get("ATHENA_WORKGROUP", "primary")
+    key     = os.environ.get("AWS_ACCESS_KEY_ID", "")
+    secret  = os.environ.get("AWS_SECRET_ACCESS_KEY", "")
+    url = (
+        f"awsathena+rest://{quote_plus(key)}:{quote_plus(secret)}"
+        f"@athena.{region}.amazonaws.com:443/nekt_service"
+        f"?s3_staging_dir={quote_plus(staging)}&work_group={quote_plus(wg)}"
+    )
+    return create_engine(url)
+
+
+def load_data_from_nekt():
+    """Reads the 7 nekt_service views and reshapes them to the SQLite schema
+    so downstream pages work unchanged."""
+    engine = _nekt_engine()
+    dim        = pd.read_sql("SELECT * FROM nekt_service.dim_clients", engine)
+    health     = pd.read_sql("SELECT * FROM nekt_service.fct_health_score", engine)
+    alerts     = pd.read_sql("SELECT * FROM nekt_service.fct_alerts", engine)
+    csm_wk     = pd.read_sql("SELECT * FROM nekt_service.fct_csm_activity_weekly", engine)
+    cov_raw    = pd.read_sql("SELECT * FROM nekt_service.fct_coverage_monthly", engine)
+    revenue    = pd.read_sql("SELECT * FROM nekt_service.fct_revenue_retention_monthly", engine)
+    upsell     = pd.read_sql("SELECT * FROM nekt_service.fct_upsell_flags", engine)
+
+    # --- dim_clients: pad cols missing in Nekt with defaults expected by pages ---
+    clients = dim.copy()
+    clients["has_cs"] = clients["has_customer_service"].fillna(False).astype(bool)
+    clients["segment_ipc"]          = None                           # pending (see plan)
+    clients["plan_type"]            = None                           # pending
+    clients["onboarding_completed"] = clients["onboarding_end_date"].notna()
+    clients["contract_end_date"]    = pd.to_datetime(clients["contract_start_date"]) + pd.DateOffset(years=1)
+    clients["days_as_client"]       = (pd.Timestamp.today().normalize() -
+                                       pd.to_datetime(clients["contract_start_date"])).dt.days
+    clients = clients.merge(
+        upsell[["client_id", "cashback_enabled"]], on="client_id", how="left"
+    )
+    clients["cashback_enabled"] = clients["cashback_enabled"].fillna(False).astype(bool)
+
+    # --- dates & bool normalization ---
+    health["calculated_at"] = pd.to_datetime(health["calculated_at"])
+    alerts["alert_date"]    = pd.to_datetime(alerts["alert_date"])
+    csm_wk["week_start"]    = pd.to_datetime(csm_wk["week_start"])
+    # Athena returns bools; pages compare `resolved == 0` — map to int for compatibility.
+    alerts["resolved"] = alerts["resolved"].fillna(False).astype(bool).astype(int)
+
+    # --- csm_activity: pad call-type breakdown with 0 (pending — see plan) ---
+    for col in ("calls_consultoria", "calls_onboarding", "calls_urgencia", "calls_follow_up"):
+        csm_wk[col] = 0
+    csm_wk["unique_clients_contacted"] = csm_wk["meetings_total"]  # best-effort proxy
+
+    # --- coverage: aggregate granular (csm, month, slug) → (csm, year_month) buckets ---
+    coverage = _reshape_coverage(cov_raw, clients)
+
+    # --- nps: not in Nekt; return empty shape so legacy refs don't break ---
+    nps = pd.DataFrame(columns=[
+        "response_id", "hubspot_company_id", "contact_email",
+        "nps_score", "nps_category", "response_date",
+    ])
+    nps["response_date"] = pd.to_datetime(nps["response_date"])
+
+    # --- campaign_channels: derive from fct_upsell_flags ---
+    campaign_channels = upsell[["client_id", "has_sms", "has_email"]].rename(
+        columns={"client_id": "revi_client_id"}
+    )
+    campaign_channels["has_sms"]   = campaign_channels["has_sms"].astype(int)
+    campaign_channels["has_email"] = campaign_channels["has_email"].astype(int)
+
+    return clients, health, alerts, csm_wk, coverage, revenue, nps, campaign_channels
+
+
+def _reshape_coverage(cov_raw: pd.DataFrame, clients: pd.DataFrame) -> pd.DataFrame:
+    """Turn granular (csm, month, slug, meetings) into per-(csm, year_month) shape
+    with with_cs / without_cs totals + contacted counts expected by Performance page."""
+    if cov_raw.empty:
+        return pd.DataFrame(columns=[
+            "csm_owner", "year_month",
+            "clients_with_cs_total", "clients_with_cs_contacted",
+            "clients_without_cs_total", "clients_without_cs_contacted",
+            "coverage_with_cs_pct", "coverage_without_cs_pct",
+            "sqls_identified",
+        ])
+
+    clients_slim = clients[["csm_owner", "company_name", "has_cs"]].copy()
+    clients_slim["slug"] = clients_slim["company_name"].str.lower().str.strip()
+
+    # Join contacted slugs back to clients → has_cs flag
+    contacted = cov_raw.merge(
+        clients_slim, left_on=["csm_owner", "client_name_slug"],
+        right_on=["csm_owner", "slug"], how="left",
+    )
+    contacted["has_cs"] = contacted["has_cs"].fillna(True)  # unknown → assume with_cs
+
+    contacted_agg = contacted.groupby(["csm_owner", "year_month"]).agg(
+        clients_with_cs_contacted   =("has_cs", lambda s: int(s.sum())),
+        clients_without_cs_contacted=("has_cs", lambda s: int((~s.astype(bool)).sum())),
+    ).reset_index()
+
+    totals = clients_slim.groupby("csm_owner").agg(
+        clients_with_cs_total   =("has_cs", lambda s: int(s.sum())),
+        clients_without_cs_total=("has_cs", lambda s: int((~s.astype(bool)).sum())),
+    ).reset_index()
+
+    out = contacted_agg.merge(totals, on="csm_owner", how="left")
+    out["coverage_with_cs_pct"]    = (out["clients_with_cs_contacted"]    / out["clients_with_cs_total"].replace(0, pd.NA)    * 100).round(1).fillna(0)
+    out["coverage_without_cs_pct"] = (out["clients_without_cs_contacted"] / out["clients_without_cs_total"].replace(0, pd.NA) * 100).round(1).fillna(0)
+    out["sqls_identified"] = 0  # pending — see plan
+    return out
 
 
 # ---------------------------------------------------------------------------
