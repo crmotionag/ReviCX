@@ -813,8 +813,8 @@ def admin_page():
 # ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
-@st.cache_data(ttl=300)
-def load_data(period_days: int = 30):
+@st.cache_data(ttl=60)
+def load_data(period_days: int = 30, _cache_bust: str = "v1.1"):
     if USE_NEKT:
         return load_data_from_nekt()
     return load_data_from_sqlite(period_days)
