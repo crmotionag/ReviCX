@@ -84,6 +84,10 @@ def reshape_coverage(cov_raw: pd.DataFrame, clients: pd.DataFrame) -> pd.DataFra
 
 def build_clients(dim: pd.DataFrame, upsell: pd.DataFrame) -> pd.DataFrame:
     clients = dim.copy()
+    # Only active clients — drop anyone with a churn_date set.
+    if "churn_date" in clients.columns:
+        churn = clients["churn_date"].astype(str).str.strip()
+        clients = clients[churn.isin(["", "None", "nan", "NaT", "null"]) | clients["churn_date"].isna()].copy()
     clients["has_cs"] = clients["has_cs"].fillna(False).astype(str).str.lower().isin(["true", "1"])
     clients["segment_ipc"] = None
     clients["plan_type"] = None
@@ -217,6 +221,12 @@ def main():
           f"csm_wk={len(csm_wk)} cov_raw={len(cov_raw)} rev={len(revenue)} upsell={len(upsell)}")
 
     clients = build_clients(dim, upsell)
+    active_ids = set(clients["client_id"])
+    # Propagate active filter to fact tables keyed by client_id
+    health = health[health["client_id"].isin(active_ids)].copy()
+    alerts = alerts[alerts["client_id"].isin(active_ids)].copy()
+    upsell = upsell[upsell["client_id"].isin(active_ids)].copy()
+
     health_out = build_health(health)
     alerts_out = build_alerts(alerts)
     csm_out = build_csm_activity(csm_wk)
